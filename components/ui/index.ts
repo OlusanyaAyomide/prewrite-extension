@@ -5,3 +5,4 @@ export { FieldBadge } from './FieldBadge';
 export { FieldPreviewList } from './FieldPreviewList';
 export { ActionButtonList } from './ActionButtonList';
 export { MetadataCard } from './MetadataCard';
+export { JobDescriptionCard } from './JobDescriptionCard';

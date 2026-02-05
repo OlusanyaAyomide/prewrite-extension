@@ -588,3 +588,99 @@ body {
 .pb-3 {
   padding-bottom: 12px;
 }
+
+/* ===== JOB DESCRIPTION ===== */
+.description-section {
+  padding: 0 16px 12px;
+}
+
+.description-card {
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.description-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.description-content {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.description-content strong {
+  font-weight: 600;
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  color: var(--brand-600);
+}
+
+.dark .description-content strong {
+  color: var(--brand-400);
+}
+
+/* ===== TABS ===== */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 16px;
+}
+
+.tab {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab.active {
+  color: var(--brand-600);
+  border-bottom-color: var(--brand-600);
+}
+
+.dark .tab.active {
+  color: var(--brand-400);
+  border-bottom-color: var(--brand-400);
+}
+
+/* ===== SCROLLBAR ===== */
+.field-list::-webkit-scrollbar,
+.description-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.field-list::-webkit-scrollbar-track,
+.description-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.field-list::-webkit-scrollbar-thumb,
+.description-card::-webkit-scrollbar-thumb {
+  background-color: var(--slate-300);
+  border-radius: 3px;
+}
+
+.dark .field-list::-webkit-scrollbar-thumb,
+.dark .description-card::-webkit-scrollbar-thumb {
+  background-color: var(--slate-600);
+}

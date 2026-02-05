@@ -5,7 +5,8 @@ import {
   ThemeToggle,
   FieldPreviewList,
   ActionButtonList,
-  MetadataCard
+  MetadataCard,
+  JobDescriptionCard
 } from '@/components/ui';
 import '@/assets/styles.css';
 
@@ -77,6 +78,11 @@ function App() {
                 jobTitles={data.proposed_job_titles}
               />
             </div>
+
+            {/* Job Descriptions */}
+            {data.proposed_job_descriptions.length > 0 && (
+              <JobDescriptionCard descriptions={data.proposed_job_descriptions} />
+            )}
 
             {/* Action Buttons */}
             {data.action_buttons.length > 0 && (

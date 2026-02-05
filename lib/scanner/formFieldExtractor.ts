@@ -4,30 +4,80 @@ import { getSectionContext } from './getSectionContext';
 
 /**
  * Extracts all form fields from the page, including those in Shadow DOM
+ * Uses recursive deep traversal to pierce all shadow boundaries
  */
 export function extractFormFields(root: Document | ShadowRoot = document): FormField[] {
   const fields: FormField[] = [];
+  const seen = new Set<Element>(); // Prevent duplicates
 
-  // Query all interactive form elements
-  const selectors = 'input, select, textarea';
-  const elements = root.querySelectorAll(selectors);
+  // Deep recursive function to traverse all elements including shadow roots
+  function traverse(node: Document | ShadowRoot | Element): void {
+    // Get all form elements at this level
+    if ('querySelectorAll' in node) {
+      const formElements = node.querySelectorAll('input, select, textarea');
+      formElements.forEach((element) => {
+        if (!seen.has(element)) {
+          seen.add(element);
+          const field = processFormElement(element as HTMLElement);
+          if (field) {
+            fields.push(field);
+          }
+        }
+      });
 
-  elements.forEach((element) => {
-    const field = processFormElement(element as HTMLElement);
-    if (field) {
-      fields.push(field);
+      // Traverse all child elements looking for shadow roots
+      const allElements = node.querySelectorAll('*');
+      allElements.forEach((el) => {
+        // Check for shadow root (open shadows)
+        if (el.shadowRoot) {
+          traverse(el.shadowRoot);
+        }
+      });
     }
-  });
+  }
 
-  // Recursively scan Shadow DOMs
-  const allElements = root.querySelectorAll('*');
-  allElements.forEach((el) => {
-    if (el.shadowRoot) {
-      fields.push(...extractFormFields(el.shadowRoot));
+  // Start traversal
+  traverse(root);
+
+  // Also check for elements with custom element patterns (common in React/Vue)
+  const customInputs = root.querySelectorAll('[role="textbox"], [role="combobox"], [role="listbox"], [contenteditable="true"]');
+  customInputs.forEach((element) => {
+    if (!seen.has(element)) {
+      seen.add(element);
+      const field = processCustomElement(element as HTMLElement);
+      if (field) {
+        fields.push(field);
+      }
     }
   });
 
   return fields;
+}
+
+/**
+ * Process custom elements that act like inputs (contenteditable, ARIA roles)
+ */
+function processCustomElement(element: HTMLElement): FormField | null {
+  const role = element.getAttribute('role');
+  const fieldId = element.id || `prewrite-custom-${Math.random().toString(36).slice(2, 8)}`;
+  const fieldLabel = findLabel(element);
+
+  let fieldType: FieldType = 'text';
+  if (role === 'combobox' || role === 'listbox') {
+    fieldType = 'select';
+  } else if (element.getAttribute('contenteditable') === 'true') {
+    fieldType = 'textarea';
+  }
+
+  return {
+    field_id: fieldId,
+    field_name: element.getAttribute('name') || '',
+    field_type: fieldType,
+    field_label: fieldLabel,
+    field_placeholder: element.getAttribute('placeholder') || element.getAttribute('aria-placeholder') || null,
+    field_options: null,
+    field_context: getSectionContext(element),
+  };
 }
 
 /**
