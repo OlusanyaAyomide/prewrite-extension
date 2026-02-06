@@ -13,6 +13,7 @@ import { extractJobMetadata } from './metadataExtractor';
 export function scanPage(): PrewritePageData {
   // Extract form fields
   const formFields = extractFormFields(document);
+  console.log(formFields)
 
   // Detect action buttons
   const actionButtons = detectActionButtons(document);

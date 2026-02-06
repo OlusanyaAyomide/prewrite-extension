@@ -219,6 +219,10 @@ body {
   padding: 12px;
 }
 
+.dark .card {
+  background-color: var(--slate-800);
+}
+
 .metadata-row {
   display: flex;
   justify-content: space-between;
@@ -887,6 +891,122 @@ body {
   line-height: 1.5;
 }
 
+/* ===== STATUS CARDS ===== */
+.status-section {
+  margin-bottom: 16px;
+}
+
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.status-card.checking {
+  background-color: var(--slate-100);
+  color: var(--slate-600);
+}
+
+.dark .status-card.checking {
+  background-color: var(--slate-800);
+  color: var(--slate-300);
+}
+
+.status-card.active {
+  background-color: var(--success-light);
+  color: var(--success);
+}
+
+.dark .status-card.active {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.status-card.fallback {
+  background-color: var(--warning-light);
+  color: var(--warning);
+}
+
+.dark .status-card.fallback {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ===== POPUP SCANNER ===== */
+.popup-scanner {
+  margin: 16px 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.scanner-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.scanner-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  color: var(--error);
+}
+
+.scanner-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scanner-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.scanner-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scanner-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scan-action {
+  margin: 16px 0;
+}
+
 /* ===== FLOATING BUTTON ===== */
 .prewrite-floating-root {
   position: fixed;
@@ -977,6 +1097,12 @@ body {
 .floating-panel-title {
   font-weight: 600;
   font-size: 16px;
+}
+
+.floating-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .floating-panel-close {

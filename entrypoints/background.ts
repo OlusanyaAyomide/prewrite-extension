@@ -1,7 +1,22 @@
 import { saveAuthSession, type AuthSession } from '@/lib/auth/authStorage';
 
+// Track tabs with active floating buttons
+const tabsWithFloatingButton = new Map<number, boolean>();
+
 export default defineBackground(() => {
   console.log('[Prewrite] Background script loaded', { id: browser.runtime.id });
+
+  // Clean up when tabs are closed
+  browser.tabs.onRemoved.addListener((tabId) => {
+    tabsWithFloatingButton.delete(tabId);
+  });
+
+  // Clean up when tabs navigate away
+  browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.url) {
+      tabsWithFloatingButton.delete(tabId);
+    }
+  });
 
   // Handle extension icon click - open popup
   browser.action.onClicked.addListener(async (tab) => {
@@ -41,7 +56,8 @@ export default defineBackground(() => {
   );
 
   // Handle internal messages (from popup/content scripts)
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Auth messages
     if (message.type === 'GET_AUTH_SESSION') {
       import('@/lib/auth/authStorage').then(({ getAuthSession }) => {
         getAuthSession().then((session) => {
@@ -57,6 +73,36 @@ export default defineBackground(() => {
           sendResponse({ status: 'success' });
         });
       });
+      return true;
+    }
+
+    // Floating button registration - content script reports it mounted successfully
+    if (message.type === 'FLOATING_BUTTON_READY') {
+      const tabId = sender.tab?.id;
+      if (tabId) {
+        tabsWithFloatingButton.set(tabId, true);
+        console.log('[Prewrite] Floating button registered for tab:', tabId);
+      }
+      sendResponse({ status: 'ok' });
+      return true;
+    }
+
+    // Floating button unregistered - content script reports it was removed/blocked
+    if (message.type === 'FLOATING_BUTTON_REMOVED') {
+      const tabId = sender.tab?.id;
+      if (tabId) {
+        tabsWithFloatingButton.delete(tabId);
+        console.log('[Prewrite] Floating button removed from tab:', tabId);
+      }
+      sendResponse({ status: 'ok' });
+      return true;
+    }
+
+    // Check if floating button is active on a specific tab
+    if (message.type === 'CHECK_FLOATING_BUTTON') {
+      const tabId = message.tabId;
+      const hasFloatingButton = tabsWithFloatingButton.get(tabId) ?? false;
+      sendResponse({ hasFloatingButton });
       return true;
     }
   });
