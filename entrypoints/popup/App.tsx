@@ -1,54 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useTheme, useAuth, useScanner } from '@/hooks';
-import {
-  Button,
-  ThemeToggle,
-  FieldPreviewList,
-  ActionButtonList,
-  MetadataCard,
-  JobDescriptionCard
-} from '@/components/ui';
+import { Button, ThemeToggle } from '@/components/ui';
+import type { JobSession, GeneratedItem } from '@/types/schema';
 import '@/assets/styles.css';
+
+type TabId = 'home' | 'sessions' | 'generated' | 'settings';
 
 function App() {
   const { isDark, toggle } = useTheme();
   const { user, isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
-  const [hasFloatingButton, setHasFloatingButton] = useState<boolean | null>(null);
-  const [isJobPortal, setIsJobPortal] = useState(false);
-  const [currentUrl, setCurrentUrl] = useState('');
-
-  // Check if current tab has floating button
-  useEffect(() => {
-    const checkFloatingButton = async () => {
-      try {
-        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id && tab.url) {
-          setCurrentUrl(tab.url);
-
-          // Check if it's a job portal URL
-          const { isJobPortalUrl } = await import('@/lib/jobPortalDetector');
-          const isPortal = isJobPortalUrl(tab.url);
-          setIsJobPortal(isPortal);
-
-          if (isPortal) {
-            // Check if floating button is active
-            const response = await browser.runtime.sendMessage({
-              type: 'CHECK_FLOATING_BUTTON',
-              tabId: tab.id
-            });
-            setHasFloatingButton(response?.hasFloatingButton ?? false);
-          } else {
-            setHasFloatingButton(false);
-          }
-        }
-      } catch (error) {
-        console.error('[Prewrite] Failed to check floating button:', error);
-        setHasFloatingButton(false);
-      }
-    };
-
-    checkFloatingButton();
-  }, []);
+  const [activeTab, setActiveTab] = useState<TabId>('home');
 
   return (
     <div className={`popup-container ${isDark ? 'dark' : ''}`}>
@@ -76,13 +37,55 @@ function App() {
             <p>Loading...</p>
           </div>
         ) : isAuthenticated && user ? (
-          <AuthenticatedView
-            user={user}
-            logout={logout}
-            hasFloatingButton={hasFloatingButton}
-            isJobPortal={isJobPortal}
-            currentUrl={currentUrl}
-          />
+          <>
+            {/* Tab Navigation */}
+            <nav className="tab-nav">
+              <button
+                className={`tab-btn ${activeTab === 'home' ? 'active' : ''}`}
+                onClick={() => setActiveTab('home')}
+              >
+                <svg className="tab-icon" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+                </svg>
+                <span>Home</span>
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`}
+                onClick={() => setActiveTab('sessions')}
+              >
+                <svg className="tab-icon" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clipRule="evenodd" />
+                </svg>
+                <span>Sessions</span>
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'generated' ? 'active' : ''}`}
+                onClick={() => setActiveTab('generated')}
+              >
+                <svg className="tab-icon" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                </svg>
+                <span>Generated</span>
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`}
+                onClick={() => setActiveTab('settings')}
+              >
+                <svg className="tab-icon" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                </svg>
+                <span>Settings</span>
+              </button>
+            </nav>
+
+            {/* Tab Content */}
+            <div className="tab-content">
+              {activeTab === 'home' && <HomeTab user={user} logout={logout} />}
+              {activeTab === 'sessions' && <SessionsTab />}
+              {activeTab === 'generated' && <GeneratedTab />}
+              {activeTab === 'settings' && <SettingsTab />}
+            </div>
+          </>
         ) : (
           <LoginView login={login} />
         )}
@@ -91,35 +94,55 @@ function App() {
   );
 }
 
-interface AuthenticatedViewProps {
+// ============ HOME TAB ============
+interface HomeTabProps {
   user: { first_name: string; last_name: string; email: string };
   logout: () => Promise<void>;
-  hasFloatingButton: boolean | null;
-  isJobPortal: boolean;
-  currentUrl: string;
 }
 
-function AuthenticatedView({ user, logout, hasFloatingButton, isJobPortal }: AuthenticatedViewProps) {
+function HomeTab({ user, logout }: HomeTabProps) {
+  const [hasFloatingButton, setHasFloatingButton] = useState<boolean | null>(null);
+  const [isJobPortal, setIsJobPortal] = useState(false);
   const { data, isLoading, error, scan } = useScanner();
   const [showScanner, setShowScanner] = useState(false);
 
-  // Auto-show scanner if on job portal without floating button
+  useEffect(() => {
+    const checkPage = async () => {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id && tab.url) {
+          const { isJobPortalUrl } = await import('@/lib/jobPortalDetector');
+          const isPortal = isJobPortalUrl(tab.url);
+          setIsJobPortal(isPortal);
+
+          if (isPortal) {
+            const response = await browser.runtime.sendMessage({
+              type: 'CHECK_FLOATING_BUTTON',
+              tabId: tab.id
+            });
+            setHasFloatingButton(response?.hasFloatingButton ?? false);
+          } else {
+            setHasFloatingButton(false);
+          }
+        }
+      } catch {
+        setHasFloatingButton(false);
+      }
+    };
+    checkPage();
+  }, []);
+
+  // Auto-show scanner when floating button blocked
   useEffect(() => {
     if (isJobPortal && hasFloatingButton === false) {
       setShowScanner(true);
+      if (!data && !isLoading) scan();
     }
-  }, [isJobPortal, hasFloatingButton]);
-
-  // Auto-scan when scanner is shown
-  useEffect(() => {
-    if (showScanner && !data && !isLoading) {
-      scan();
-    }
-  }, [showScanner, data, isLoading, scan]);
+  }, [isJobPortal, hasFloatingButton, data, isLoading, scan]);
 
   return (
-    <div className="auth-container">
-      {/* User Info */}
+    <div className="home-tab">
+      {/* User Card */}
       <div className="user-card">
         <div className="user-avatar">
           {user.first_name.charAt(0)}{user.last_name.charAt(0)}
@@ -130,33 +153,33 @@ function AuthenticatedView({ user, logout, hasFloatingButton, isJobPortal }: Aut
         </div>
       </div>
 
-      {/* Job Portal Status */}
+      {/* Status */}
       {isJobPortal && (
         <div className="status-section">
           {hasFloatingButton === null ? (
             <div className="status-card checking">
               <div className="spinner-sm" />
-              <span>Checking page status...</span>
+              <span>Checking...</span>
             </div>
           ) : hasFloatingButton ? (
             <div className="status-card active">
               <svg className="icon" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              <span>Floating button active on this page</span>
+              <span>Floating button active</span>
             </div>
           ) : (
             <div className="status-card fallback">
               <svg className="icon" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
-              <span>Using popup scanner (page blocks injection)</span>
+              <span>Using popup scanner</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Scanner UI - shown when floating button is blocked */}
+      {/* Scanner Results */}
       {showScanner && (
         <div className="popup-scanner">
           {isLoading ? (
@@ -167,42 +190,23 @@ function AuthenticatedView({ user, logout, hasFloatingButton, isJobPortal }: Aut
           ) : error ? (
             <div className="scanner-error">
               <p>{error}</p>
-              <Button onClick={scan} variant="secondary">
-                Retry Scan
-              </Button>
+              <Button onClick={scan} variant="secondary">Retry</Button>
             </div>
           ) : data ? (
             <div className="scanner-results">
-              {/* Stats */}
               <div className="scanner-stats">
                 <span><strong>{data.form_fields.length}</strong> fields</span>
                 <span className="stats-divider">•</span>
                 <span><strong>{data.action_buttons.length}</strong> buttons</span>
               </div>
-
-              {/* Metadata */}
-              <MetadataCard
-                metadata={data.form_metadata}
-                companyNames={data.proposed_company_names}
-                jobTitles={data.proposed_job_titles}
-              />
-
-              {/* Job Descriptions */}
-              {data.proposed_job_descriptions.length > 0 && (
-                <JobDescriptionCard descriptions={data.proposed_job_descriptions} />
-              )}
-
-              {/* Fields */}
-              <div className="scanner-section">
-                <p className="scanner-section-title">Form Fields</p>
-                <FieldPreviewList fields={data.form_fields} />
-              </div>
-
-              {/* Action Buttons */}
-              {data.action_buttons.length > 0 && (
-                <div className="scanner-section">
-                  <p className="scanner-section-title">Actions</p>
-                  <ActionButtonList buttons={data.action_buttons} />
+              {(data.proposed_company_names[0] || data.proposed_job_titles[0]) && (
+                <div className="metadata-compact">
+                  {data.proposed_company_names[0] && (
+                    <span className="metadata-company">{data.proposed_company_names[0]}</span>
+                  )}
+                  {data.proposed_job_titles[0] && (
+                    <span className="metadata-title">{data.proposed_job_titles[0]}</span>
+                  )}
                 </div>
               )}
             </div>
@@ -210,46 +214,299 @@ function AuthenticatedView({ user, logout, hasFloatingButton, isJobPortal }: Aut
         </div>
       )}
 
-      {/* Manual Scan Button - when on job portal but scanner not showing */}
-      {isJobPortal && !showScanner && hasFloatingButton === false && (
-        <div className="scan-action">
-          <Button onClick={() => setShowScanner(true)}>
-            <svg className="icon" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-            </svg>
-            Scan This Page
-          </Button>
-        </div>
-      )}
-
-      {/* Info - only show when floating button is active */}
-      {(!isJobPortal || hasFloatingButton) && (
+      {/* Info */}
+      {!isJobPortal && (
         <div className="info-card">
           <svg className="icon" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
           </svg>
-          <p>{isJobPortal ? 'Use the floating Prewrite button on this page!' : 'Navigate to a job application page to use Prewrite'}</p>
+          <p>Navigate to a job application page</p>
         </div>
       )}
 
       {/* Logout */}
       <div className="auth-actions">
-        <Button variant="secondary" onClick={logout}>
-          <svg className="icon" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H3zm11 3a1 1 0 10-2 0v4.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L14 10.586V6z" clipRule="evenodd" transform="rotate(-90 10 10)" />
-          </svg>
-          Sign Out
-        </Button>
+        <Button variant="secondary" onClick={logout}>Sign Out</Button>
       </div>
     </div>
   );
 }
 
-interface LoginViewProps {
-  login: () => void;
+// ============ SESSIONS TAB ============
+function SessionsTab() {
+  const [sessions, setSessions] = useState<JobSession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadSessions();
+  }, []);
+
+  const loadSessions = async () => {
+    setLoading(true);
+    try {
+      const response = await browser.runtime.sendMessage({ type: 'SESSION_LIST' });
+      setSessions(response.sessions || []);
+    } catch {
+      setSessions([]);
+    }
+    setLoading(false);
+  };
+
+  const deleteSession = async (id: string) => {
+    await browser.runtime.sendMessage({ type: 'SESSION_DELETE', id });
+    loadSessions();
+  };
+
+  const formatTime = (timestamp: number) => {
+    const mins = Math.floor((Date.now() - timestamp) / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ago`;
+  };
+
+  if (loading) {
+    return (
+      <div className="tab-loading">
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <div className="tab-empty">
+        <svg className="empty-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6z" clipRule="evenodd" />
+        </svg>
+        <p>No active sessions</p>
+        <span className="empty-hint">Sessions are captured when scanning job pages</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sessions-tab">
+      {sessions.map((session) => (
+        <div key={session.id} className="session-card">
+          <div className="session-info">
+            <p className="session-company">{session.company || 'Unknown Company'}</p>
+            <p className="session-title">{session.jobTitle || 'Unknown Position'}</p>
+            {session.jobDescription && (
+              <p className="session-desc">{session.jobDescription.slice(0, 80)}...</p>
+            )}
+            <span className="session-time">{formatTime(session.lastAccessedAt)}</span>
+          </div>
+          <button className="session-delete" onClick={() => deleteSession(session.id)} title="Delete">
+            <svg viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function LoginView({ login }: LoginViewProps) {
+// ============ GENERATED TAB ============
+function GeneratedTab() {
+  const [items, setItems] = useState<GeneratedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadItems();
+  }, []);
+
+  const loadItems = async () => {
+    setLoading(true);
+    try {
+      const response = await browser.runtime.sendMessage({ type: 'GENERATED_LIST', limit: 10 });
+      setItems(response.items || []);
+    } catch {
+      setItems([]);
+    }
+    setLoading(false);
+  };
+
+  const downloadItem = (item: GeneratedItem) => {
+    const link = document.createElement('a');
+    link.href = item.url;
+    link.download = `${item.type}_${item.company}.pdf`;
+    link.target = '_blank';
+    link.click();
+  };
+
+  const formatTime = (timestamp: number) => {
+    const mins = Math.floor((Date.now() - timestamp) / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ago`;
+  };
+
+  if (loading) {
+    return (
+      <div className="tab-loading">
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="generated-tab">
+      {items.length === 0 ? (
+        <div className="tab-empty">
+          <svg className="empty-icon" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+          </svg>
+          <p>No generated files yet</p>
+          <span className="empty-hint">Resumes and cover letters will appear here</span>
+        </div>
+      ) : (
+        <>
+          {items.map((item) => (
+            <div key={item.id} className="generated-card">
+              <div className="generated-icon">
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="generated-info">
+                <p className="generated-type">{item.type === 'resume' ? 'Resume' : 'Cover Letter'}</p>
+                <p className="generated-company">{item.company} - {item.jobTitle}</p>
+                <span className="generated-time">{formatTime(item.createdAt)}</span>
+              </div>
+              <button className="download-btn" onClick={() => downloadItem(item)} title="Download">
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          ))}
+          <a href="https://prewrite.io/generations" target="_blank" rel="noopener noreferrer" className="view-all-link">
+            View All Generations →
+          </a>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============ SETTINGS TAB ============
+function SettingsTab() {
+  const [currentUrl, setCurrentUrl] = useState('');
+  const [currentDomain, setCurrentDomain] = useState('');
+  const [currentTabId, setCurrentTabId] = useState<number | null>(null);
+  const [isJobPortal, setIsJobPortal] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadCurrentPage = async () => {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.url && tab.id) {
+          setCurrentUrl(tab.url);
+          setCurrentDomain(new URL(tab.url).hostname);
+          setCurrentTabId(tab.id);
+
+          // Get combined site status
+          const response = await browser.runtime.sendMessage({
+            type: 'SITE_STATUS',
+            url: tab.url
+          });
+
+          setIsJobPortal(response?.isJobPortal ?? false);
+          setIsEnabled(response?.isEnabled ?? false);
+        }
+      } catch {
+        // Ignore
+      }
+      setLoading(false);
+    };
+    loadCurrentPage();
+  }, []);
+
+  const toggleSite = async () => {
+    if (!currentTabId) return;
+
+    if (isJobPortal) {
+      // Job portal: toggle blacklist
+      if (isEnabled) {
+        // Currently enabled → disable (add to blacklist)
+        setIsEnabled(false);
+        await browser.runtime.sendMessage({ type: 'BLACKLIST_ADD', url: currentDomain, blockType: 'domain' });
+        // Hide floating button immediately
+        try {
+          await browser.tabs.sendMessage(currentTabId, { type: 'HIDE_FLOATING_BUTTON' });
+        } catch {
+          // Content script may not be ready, ignore
+        }
+      } else {
+        // Currently disabled → enable (remove from blacklist)
+        setIsEnabled(true);
+        await browser.runtime.sendMessage({ type: 'BLACKLIST_REMOVE', url: currentUrl });
+        // Try to inject floating button
+        await browser.runtime.sendMessage({ type: 'INJECT_FLOATING_BUTTON', tabId: currentTabId });
+      }
+    } else {
+      // Non-job portal: toggle allowlist
+      if (isEnabled) {
+        // Currently enabled → disable (remove from allowlist)
+        setIsEnabled(false);
+        await browser.runtime.sendMessage({ type: 'ALLOWLIST_REMOVE', url: currentUrl });
+        // Hide floating button immediately
+        try {
+          await browser.tabs.sendMessage(currentTabId, { type: 'HIDE_FLOATING_BUTTON' });
+        } catch {
+          // Content script may not be ready, ignore
+        }
+      } else {
+        // Currently disabled → enable (add to allowlist)
+        setIsEnabled(true);
+        await browser.runtime.sendMessage({ type: 'ALLOWLIST_ADD', url: currentDomain, blockType: 'domain' });
+        // Inject floating button
+        await browser.runtime.sendMessage({ type: 'INJECT_FLOATING_BUTTON', tabId: currentTabId });
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="tab-loading">
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-tab">
+      <div className="settings-section">
+        <h3 className="settings-title">Current Site</h3>
+        <p className="settings-domain">{currentDomain || 'Unknown'}</p>
+
+        <div className="settings-toggle">
+          <span>Enable Prewrite on this site</span>
+          <button
+            className={`toggle-switch ${isEnabled ? 'active' : ''}`}
+            onClick={toggleSite}
+          >
+            <span className="toggle-knob" />
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3 className="settings-title">About</h3>
+        <p className="settings-info">Prewrite v1.0.0</p>
+        <a href="https://prewrite.io" target="_blank" rel="noopener noreferrer" className="settings-link">
+          Visit Website →
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ============ LOGIN VIEW ============
+function LoginView({ login }: { login: () => void }) {
   return (
     <div className="auth-container login-view">
       <div className="login-hero">
@@ -261,14 +518,8 @@ function LoginView({ login }: LoginViewProps) {
         <h2 className="login-title">Welcome to Prewrite</h2>
         <p className="login-subtitle">Sign in to enable autofill on job applications</p>
       </div>
-
       <div className="auth-actions">
-        <Button onClick={login}>
-          <svg className="icon" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M3 3a1 1 0 011 1v12a1 1 0 11-2 0V4a1 1 0 011-1zm7.707 3.293a1 1 0 010 1.414L9.414 9H17a1 1 0 110 2H9.414l1.293 1.293a1 1 0 01-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-          Sign In
-        </Button>
+        <Button onClick={login}>Sign In</Button>
       </div>
     </div>
   );

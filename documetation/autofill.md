@@ -10,6 +10,13 @@ The autocomplete process handles two scenarios:
 
 ---
 
+## Authentication
+
+All endpoints require a valid JWT Access Token.
+
+**Header:**
+`Authorization: Bearer <your_access_token>`
+
 ## 1. Initiate Autocomplete
 
 Send the context of the current job application page (scraped fields, job description) to the backend.

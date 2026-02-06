@@ -212,64 +212,6 @@ body {
   }
 }
 
-/* ===== PW- PREFIXED BUTTONS (for shared components) ===== */
-.pw-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  width: 100%;
-}
-
-.pw-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.pw-btn-primary {
-  background-color: var(--brand-600);
-  color: white;
-}
-
-.pw-btn-primary:hover:not(:disabled) {
-  background-color: var(--brand-700);
-}
-
-.pw-btn-secondary {
-  background-color: var(--slate-100);
-  color: var(--slate-700);
-  border: 1px solid var(--border-color);
-}
-
-.dark .pw-btn-secondary {
-  background-color: var(--slate-700);
-  color: var(--slate-200);
-}
-
-.pw-btn-secondary:hover:not(:disabled) {
-  background-color: var(--slate-200);
-}
-
-.dark .pw-btn-secondary:hover:not(:disabled) {
-  background-color: var(--slate-600);
-}
-
-.pw-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
 /* ===== CARDS ===== */
 .card {
   background-color: var(--bg-secondary);

@@ -14,15 +14,15 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  const variantClass = variant === 'primary' ? 'btn-primary' : 'btn-secondary';
+  const variantClass = variant === 'primary' ? 'pw-btn-primary' : 'pw-btn-secondary';
 
   return (
     <button
-      className={`btn ${variantClass} ${className}`}
+      className={`pw-btn ${variantClass} ${className}`}
       disabled={disabled || isLoading}
       {...props}
     >
-      {isLoading && <span className="spinner" />}
+      {isLoading && <span className="pw-spinner" />}
       {children}
     </button>
   );

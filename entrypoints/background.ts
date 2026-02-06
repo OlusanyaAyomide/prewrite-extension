@@ -1,4 +1,9 @@
 import { saveAuthSession, type AuthSession } from '@/lib/auth/authStorage';
+import * as sessionManager from '@/lib/session/sessionManager';
+import * as blacklist from '@/lib/settings/domainBlacklist';
+import * as generatedContent from '@/lib/storage/generatedContent';
+import { initiateAutocomplete, subscribeToJob, getCompletionResult } from '@/lib/api/apiClient';
+import type { PrewritePageData, JobSession, GeneratedItem } from '@/types/schema';
 
 // Track tabs with active floating buttons
 const tabsWithFloatingButton = new Map<number, boolean>();
@@ -26,7 +31,6 @@ export default defineBackground(() => {
   });
 
   // Handle external messages from web app (localhost:3001)
-  // This receives auth tokens after login
   browser.runtime.onMessageExternal.addListener(
     async (message: { type: string; token?: string; user?: AuthSession['user']; tokenExpiry?: string }, sender, sendResponse) => {
       console.log('[Prewrite] External message received:', message.type, 'from:', sender.origin);
@@ -51,59 +55,299 @@ export default defineBackground(() => {
         }
       }
 
-      return true; // Keep message channel open for async response
+      return true;
     }
   );
 
   // Handle internal messages (from popup/content scripts)
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // Auth messages
-    if (message.type === 'GET_AUTH_SESSION') {
-      import('@/lib/auth/authStorage').then(({ getAuthSession }) => {
-        getAuthSession().then((session) => {
-          sendResponse({ session });
-        });
-      });
-      return true;
-    }
-
-    if (message.type === 'LOGOUT') {
-      import('@/lib/auth/authStorage').then(({ clearAuthSession }) => {
-        clearAuthSession().then(() => {
-          sendResponse({ status: 'success' });
-        });
-      });
-      return true;
-    }
-
-    // Floating button registration - content script reports it mounted successfully
-    if (message.type === 'FLOATING_BUTTON_READY') {
-      const tabId = sender.tab?.id;
-      if (tabId) {
-        tabsWithFloatingButton.set(tabId, true);
-        console.log('[Prewrite] Floating button registered for tab:', tabId);
-      }
-      sendResponse({ status: 'ok' });
-      return true;
-    }
-
-    // Floating button unregistered - content script reports it was removed/blocked
-    if (message.type === 'FLOATING_BUTTON_REMOVED') {
-      const tabId = sender.tab?.id;
-      if (tabId) {
-        tabsWithFloatingButton.delete(tabId);
-        console.log('[Prewrite] Floating button removed from tab:', tabId);
-      }
-      sendResponse({ status: 'ok' });
-      return true;
-    }
-
-    // Check if floating button is active on a specific tab
-    if (message.type === 'CHECK_FLOATING_BUTTON') {
-      const tabId = message.tabId;
-      const hasFloatingButton = tabsWithFloatingButton.get(tabId) ?? false;
-      sendResponse({ hasFloatingButton });
-      return true;
-    }
+    handleMessage(message, sender, sendResponse);
+    return true; // Keep channel open for async
   });
 });
+
+/**
+ * Message handler - split out for cleaner code
+ */
+async function handleMessage(
+  message: { type: string;[key: string]: unknown },
+  sender: { tab?: { id?: number }; origin?: string },
+  sendResponse: (response: unknown) => void
+): Promise<void> {
+  console.log('[Prewrite] Message received:', message.type);
+  try {
+    switch (message.type) {
+      // ===== AUTH =====
+      case 'GET_AUTH_SESSION': {
+        const { getAuthSession } = await import('@/lib/auth/authStorage');
+        const session = await getAuthSession();
+        sendResponse({ session });
+        break;
+      }
+
+      case 'LOGOUT': {
+        const { clearAuthSession } = await import('@/lib/auth/authStorage');
+        await clearAuthSession();
+        sendResponse({ status: 'success' });
+        break;
+      }
+
+      // ===== FLOATING BUTTON =====
+      case 'FLOATING_BUTTON_READY': {
+        const tabId = sender.tab?.id;
+        if (tabId) {
+          tabsWithFloatingButton.set(tabId, true);
+          console.log('[Prewrite] Floating button registered for tab:', tabId);
+        }
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'FLOATING_BUTTON_REMOVED': {
+        const tabId = sender.tab?.id;
+        if (tabId) {
+          tabsWithFloatingButton.delete(tabId);
+          console.log('[Prewrite] Floating button removed from tab:', tabId);
+        }
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'CHECK_FLOATING_BUTTON': {
+        const tabId = message.tabId as number;
+        const hasFloatingButton = tabsWithFloatingButton.get(tabId) ?? false;
+        sendResponse({ hasFloatingButton });
+        break;
+      }
+
+      // ===== SESSION MANAGEMENT =====
+      case 'SESSION_ADD': {
+        const sessionData = message.session as Omit<JobSession, 'id' | 'createdAt' | 'lastAccessedAt'>;
+        const newSession = await sessionManager.addSession(sessionData);
+        sendResponse({ session: newSession });
+        break;
+      }
+
+      case 'SESSION_GET': {
+        const id = message.id as string;
+        const session = await sessionManager.getSession(id);
+        sendResponse({ session });
+        break;
+      }
+
+      case 'SESSION_GET_BY_DOMAIN': {
+        const domain = message.domain as string;
+        const session = await sessionManager.getSessionByDomain(domain);
+        sendResponse({ session });
+        break;
+      }
+
+      case 'SESSION_LIST': {
+        const sessions = await sessionManager.getAllSessions();
+        sendResponse({ sessions });
+        break;
+      }
+
+      case 'SESSION_DELETE': {
+        const id = message.id as string;
+        const deleted = await sessionManager.deleteSession(id);
+        sendResponse({ deleted });
+        break;
+      }
+
+      case 'SESSION_CURRENT': {
+        const session = await sessionManager.getCurrentSession();
+        sendResponse({ session });
+        break;
+      }
+
+      // ===== BLACKLIST =====
+      case 'BLACKLIST_ADD': {
+        const url = message.url as string;
+        const type = (message.blockType as 'page' | 'domain') || 'page';
+        await blacklist.addToBlacklist(url, type);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'BLACKLIST_REMOVE': {
+        const url = message.url as string;
+        await blacklist.removeFromBlacklist(url);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'BLACKLIST_CHECK': {
+        const url = message.url as string;
+        const isBlocked = await blacklist.isBlacklisted(url);
+        sendResponse({ isBlocked });
+        break;
+      }
+
+      case 'BLACKLIST_LIST': {
+        const entries = await blacklist.getBlacklistEntries();
+        sendResponse({ entries });
+        break;
+      }
+
+      // ===== ALLOWLIST (for non-job-portal sites) =====
+      case 'ALLOWLIST_ADD': {
+        const url = message.url as string;
+        const type = (message.blockType as 'page' | 'domain') || 'domain';
+        await blacklist.addToAllowlist(url, type);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'ALLOWLIST_REMOVE': {
+        const url = message.url as string;
+        await blacklist.removeFromAllowlist(url);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'ALLOWLIST_CHECK': {
+        const url = message.url as string;
+        const isAllowed = await blacklist.isAllowlisted(url);
+        sendResponse({ isAllowed });
+        break;
+      }
+
+      // ===== SITE STATUS (combined check) =====
+      case 'SITE_STATUS': {
+        const url = message.url as string;
+        const { isJobPortalUrl } = await import('@/lib/jobPortalDetector');
+        const isJobPortal = isJobPortalUrl(url);
+        const isBlocked = await blacklist.isBlacklisted(url);
+        const isAllowed = await blacklist.isAllowlisted(url);
+
+        // Site is enabled if: (job portal AND not blocked) OR (not job portal AND allowed)
+        const isEnabled = isJobPortal ? !isBlocked : isAllowed;
+        sendResponse({ isJobPortal, isBlocked, isAllowed, isEnabled });
+        break;
+      }
+
+      // ===== INJECT FLOATING BUTTON =====
+      case 'INJECT_FLOATING_BUTTON': {
+        const tabId = message.tabId as number;
+        try {
+          await browser.scripting.executeScript({
+            target: { tabId },
+            files: ['content-scripts/floatingButton.js']
+          });
+          sendResponse({ status: 'ok' });
+        } catch (error) {
+          console.error('[Prewrite] Failed to inject floating button:', error);
+          sendResponse({ status: 'error', error: String(error) });
+        }
+        break;
+      }
+
+      // ===== GENERATED CONTENT =====
+      case 'GENERATED_ADD': {
+        const item = message.item as Omit<GeneratedItem, 'id' | 'createdAt'>;
+        const newItem = generatedContent.addGeneratedItem(item);
+        sendResponse({ item: newItem });
+        break;
+      }
+
+      case 'GENERATED_LIST': {
+        const limit = (message.limit as number) || 10;
+        const items = generatedContent.getRecentGenerated(limit);
+        sendResponse({ items });
+        break;
+      }
+
+      case 'GENERATED_DELETE': {
+        const id = message.id as string;
+        const deleted = generatedContent.deleteGeneratedItem(id);
+        sendResponse({ deleted });
+        break;
+      }
+
+      // ===== AUTOFILL =====
+      case 'AUTOFILL_REQUEST': {
+        const payload = message.payload as PrewritePageData;
+        try {
+          const response = await initiateAutocomplete(payload);
+
+          // If async job started, set up SSE listener
+          if (response.job_id) {
+            // Store job info for later
+            sendResponse({
+              response,
+              status: 'processing',
+              message: 'Generating resume/cv... check back later'
+            });
+
+            // Set up SSE subscription
+            await subscribeToJob(
+              response.job_id,
+              async (data) => {
+                if (data.status === 'completed') {
+                  // Get the final result
+                  const result = await getCompletionResult(response.job_id!);
+
+                  // Store generated content
+                  if (result.generated_content.resume) {
+                    generatedContent.addGeneratedItem({
+                      type: 'resume',
+                      url: result.generated_content.resume.field_value,
+                      jobTitle: payload.proposed_job_titles[0] || 'Unknown',
+                      company: payload.proposed_company_names[0] || 'Unknown',
+                    });
+                  }
+                  if (result.generated_content.cover_letter) {
+                    generatedContent.addGeneratedItem({
+                      type: 'cover_letter',
+                      url: result.generated_content.cover_letter.field_value,
+                      jobTitle: payload.proposed_job_titles[0] || 'Unknown',
+                      company: payload.proposed_company_names[0] || 'Unknown',
+                    });
+                  }
+
+                  // Notify content script (if still active)
+                  // This will be handled by the content script polling
+                }
+              },
+              (error) => {
+                console.error('[Prewrite] SSE error:', error);
+              }
+            );
+          } else {
+            // No async job, return immediately
+            sendResponse({ response, status: 'complete' });
+          }
+        } catch (error) {
+          console.error('[Prewrite] Autofill request failed:', error);
+          sendResponse({
+            error: error instanceof Error ? error.message : 'Autofill failed',
+            status: 'error'
+          });
+        }
+        break;
+      }
+
+      case 'AUTOFILL_GET_RESULT': {
+        const jobId = message.jobId as string;
+        try {
+          const result = await getCompletionResult(jobId);
+          sendResponse({ result, status: 'complete' });
+        } catch (error) {
+          sendResponse({
+            error: error instanceof Error ? error.message : 'Failed to get result',
+            status: 'error'
+          });
+        }
+        break;
+      }
+
+      default:
+        console.log('[Prewrite] Unknown message type:', message.type);
+        sendResponse({ error: 'Unknown message type' });
+    }
+  } catch (error) {
+    console.error('[Prewrite] Message handler error:', error);
+    sendResponse({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+}

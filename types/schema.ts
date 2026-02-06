@@ -55,3 +55,15 @@ export interface ScanResponseMessage {
 }
 
 export type ExtensionMessage = ScanRequestMessage | ScanResponseMessage;
+
+// Re-export autofill types
+export type {
+  JobSession,
+  AutofillResponse,
+  AutofillField,
+  CompletionResult,
+  GeneratedFile,
+  GeneratedItem,
+  BlacklistEntry,
+} from './autofill';
+
