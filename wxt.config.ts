@@ -6,7 +6,7 @@ export default defineConfig({
   manifest: {
     name: 'Prewrite',
     description: 'Scan job application forms and extract field data for API integration',
-    permissions: ['activeTab', 'scripting', 'webNavigation'],
+    permissions: ['activeTab', 'scripting', 'webNavigation', 'storage'],
     host_permissions: [
       'https://*.greenhouse.io/*',
       'https://*.lever.co/*',
@@ -18,5 +18,9 @@ export default defineConfig({
       'https://*.linkedin.com/*',
       'https://*.indeed.com/*',
     ],
+    // Allow external messages from localhost (for auth token transfer)
+    externally_connectable: {
+      matches: ['http://localhost:3001/*', 'https://localhost:3001/*'],
+    },
   },
 });
