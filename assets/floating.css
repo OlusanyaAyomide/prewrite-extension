@@ -242,7 +242,7 @@
 }
 
 .pw-floating-panel-error {
-  color: var(--pw-error);
+  color: var(--pw-text-primary);
 }
 
 /* Panel Stats */

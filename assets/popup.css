@@ -1835,3 +1835,40 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+
+/* Theme Toggle */
+.pw-theme-toggle {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.pw-theme-toggle:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.pw-theme-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Icons */
+.pw-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.pw-icon-lg {
+  width: 20px;
+  height: 20px;
+}

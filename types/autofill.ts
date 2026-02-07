@@ -40,6 +40,7 @@ export interface AutofillField {
 export interface CompletionResult {
   overall_match: number;
   can_apply: boolean;
+  requirement_not_met: string[] | null;
   generated_content: {
     resume: GeneratedFile | null;
     cover_letter: GeneratedFile | null;

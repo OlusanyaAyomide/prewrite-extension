@@ -2,7 +2,7 @@ import { saveAuthSession, type AuthSession } from '@/lib/auth/authStorage';
 import * as sessionManager from '@/lib/session/sessionManager';
 import * as blacklist from '@/lib/settings/domainBlacklist';
 import * as generatedContent from '@/lib/storage/generatedContent';
-import { initiateAutocomplete, subscribeToJob, getCompletionResult } from '@/lib/api/apiClient';
+import { initiateAutocomplete, pollJobResult, getCompletionResult, forceApply } from '@/lib/api/apiClient';
 import type { PrewritePageData, JobSession, GeneratedItem } from '@/types/schema';
 
 // Track tabs with active floating buttons
@@ -246,21 +246,21 @@ async function handleMessage(
       // ===== GENERATED CONTENT =====
       case 'GENERATED_ADD': {
         const item = message.item as Omit<GeneratedItem, 'id' | 'createdAt'>;
-        const newItem = generatedContent.addGeneratedItem(item);
+        const newItem = await generatedContent.addGeneratedItem(item);
         sendResponse({ item: newItem });
         break;
       }
 
       case 'GENERATED_LIST': {
         const limit = (message.limit as number) || 10;
-        const items = generatedContent.getRecentGenerated(limit);
+        const items = await generatedContent.getRecentGenerated(limit);
         sendResponse({ items });
         break;
       }
 
       case 'GENERATED_DELETE': {
         const id = message.id as string;
-        const deleted = generatedContent.deleteGeneratedItem(id);
+        const deleted = await generatedContent.deleteGeneratedItem(id);
         sendResponse({ deleted });
         break;
       }
@@ -280,40 +280,44 @@ async function handleMessage(
               message: 'Generating resume/cv... check back later'
             });
 
-            // Set up SSE subscription
-            await subscribeToJob(
-              response.job_id,
-              async (data) => {
-                if (data.status === 'completed') {
-                  // Get the final result
-                  const result = await getCompletionResult(response.job_id!);
-
-                  // Store generated content
-                  if (result.generated_content.resume) {
-                    generatedContent.addGeneratedItem({
-                      type: 'resume',
-                      url: result.generated_content.resume.field_value,
-                      jobTitle: payload.proposed_job_titles[0] || 'Unknown',
-                      company: payload.proposed_company_names[0] || 'Unknown',
-                    });
-                  }
-                  if (result.generated_content.cover_letter) {
-                    generatedContent.addGeneratedItem({
-                      type: 'cover_letter',
-                      url: result.generated_content.cover_letter.field_value,
-                      jobTitle: payload.proposed_job_titles[0] || 'Unknown',
-                      company: payload.proposed_company_names[0] || 'Unknown',
-                    });
-                  }
-
-                  // Notify content script (if still active)
-                  // This will be handled by the content script polling
+            // Start polling for completion
+            pollJobResult(response.job_id)
+              .then(async (result) => {
+                // Store generated content
+                if (result.generated_content.resume) {
+                  await generatedContent.addGeneratedItem({
+                    type: 'resume',
+                    url: result.generated_content.resume.field_value,
+                    jobTitle: payload.proposed_job_titles[0] || 'Unknown',
+                    company: payload.proposed_company_names[0] || 'Unknown',
+                  });
                 }
-              },
-              (error) => {
-                console.error('[Prewrite] SSE error:', error);
-              }
-            );
+                if (result.generated_content.cover_letter) {
+                  await generatedContent.addGeneratedItem({
+                    type: 'cover_letter',
+                    url: result.generated_content.cover_letter.field_value,
+                    jobTitle: payload.proposed_job_titles[0] || 'Unknown',
+                    company: payload.proposed_company_names[0] || 'Unknown',
+                  });
+                }
+
+                // Notify content script
+                if (sender.tab?.id) {
+                  browser.tabs.sendMessage(sender.tab.id, {
+                    type: 'JOB_COMPLETED',
+                    data: result
+                  }).catch(e => console.error('[Prewrite] Failed to notify tab:', e));
+                }
+              })
+              .catch((error) => {
+                console.error('[Prewrite] Polling error:', error);
+                if (sender.tab?.id) {
+                  browser.tabs.sendMessage(sender.tab.id, {
+                    type: 'JOB_FAILED',
+                    error: error.message
+                  }).catch(() => { });
+                }
+              });
           } else {
             // No async job, return immediately
             sendResponse({ response, status: 'complete' });
@@ -339,6 +343,53 @@ async function handleMessage(
             status: 'error'
           });
         }
+        break;
+      }
+
+      case 'AUTOFILL_FORCE_APPLY': {
+        const { completionsReference, jobReference } = (message as any).payload;
+        console.log('[Prewrite] Force applying for job:', jobReference);
+
+        forceApply(completionsReference, jobReference)
+          .then(async (result) => {
+            console.log('[Prewrite] Force apply success:', result);
+
+            // Store updated generated content
+            if (result.generated_content.resume) {
+              await generatedContent.addGeneratedItem({
+                type: 'resume',
+                url: result.generated_content.resume.field_value,
+                jobTitle: 'Unknown',
+                company: 'Unknown',
+              });
+            }
+            if (result.generated_content.cover_letter) {
+              await generatedContent.addGeneratedItem({
+                type: 'cover_letter',
+                url: result.generated_content.cover_letter.field_value,
+                jobTitle: 'Unknown',
+                company: 'Unknown',
+              });
+            }
+
+            if (sender.tab?.id) {
+              await browser.tabs.sendMessage(sender.tab.id, {
+                type: 'JOB_COMPLETED',
+                data: result
+              });
+            }
+          })
+          .catch((error) => {
+            console.error('[Prewrite] Force apply failed:', error);
+            if (sender.tab?.id) {
+              browser.tabs.sendMessage(sender.tab.id, {
+                type: 'JOB_FAILED',
+                error: error instanceof Error ? error.message : 'Force apply failed'
+              }).catch(() => { });
+            }
+          });
+
+        sendResponse({ status: 'processing' });
         break;
       }
 

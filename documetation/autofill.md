@@ -1,23 +1,29 @@
 # Autocomplete API Documentation
 
-This document outlines the client-facing workflow for the Autocomplete system. It describes how to initiate an autocomplete session, handle asynchronous content generation (Resumes/Cover Letters), and retrieve the final results.
-
-## Workflow Overview
-
-The autocomplete process handles two scenarios:
-1.  **Simple Autofill**: No new content generation required. Returns data immediately.
-2.  **Complex Autofill**: Requires generating a specific Resume or Cover Letter. This is an asynchronous process using Server-Sent Events (SSE).
+This document outlines the client-facing workflow for the **Autocomplete** system. It describes how to initiate an autocomplete session, handle asynchronous content generation (Resumes/Cover Letters), and retrieve final results.
 
 ---
 
-## Authentication
+## 🚀 Workflow Overview
+
+The autocomplete process handles two main scenarios:
+
+1.  **Immediate Autofill**: No complex content generation required. Data is returned immediately.
+2.  **Asynchronous Generation**: Requires generating specific Resume or Cover Letter assets. This uses a background job and notifies the client via **Server-Sent Events (SSE)**.
+
+---
+
+## 🔐 Authentication
 
 All endpoints require a valid JWT Access Token.
 
-**Header:**
-`Authorization: Bearer <your_access_token>`
+| Header | Value |
+| :--- | :--- |
+| **Authorization** | `Bearer <your_access_token>` |
 
-## 1. Initiate Autocomplete
+---
+
+## 1️⃣ Step 1: Initiate Autocomplete
 
 Send the context of the current job application page (scraped fields, job description) to the backend.
 
@@ -40,8 +46,8 @@ Send the context of the current job application page (scraped fields, job descri
 }
 ```
 
-### Response
-The response determines the next step.
+### Response Highlights
+The response determines if you need to wait for further processing.
 
 ```json
 {
@@ -50,87 +56,109 @@ The response determines the next step.
     "completion_session_ref": "CMP_12345",
     "is_multi_step": true,
     "job_id": "Que_abc123", // Present ONLY if Resume/CV generation is required.
-    "autofill_data": [ ... ] // Immediate data returned
+    "autofill_data": [ ... ] // Data available for immediate use
   }
 }
 ```
 
-### Handling the Response
-1.  **Immediate Autofill**: Always use `autofill_data` to populate form fields immediately, regardless of `job_id`.
-2.  **Async Generation**: Check `job_id`.
-    *   If `null`: Process is complete.
-    *   If **present**: A Resume or Cover Letter is being generated in the background. Proceed to **Step 2** to wait for the file URLs.
+> [!TIP]
+> **Immediate Action**: Always use `autofill_data` to populate form fields right away, even if a `job_id` is present.
 
 ---
 
-## 2. Subscribe to Updates (Async Flow)
+## 2️⃣ Step 2: Subscribe to Updates (Async Flow)
 
-If a `job_id` was returned, the server is generating a resume or cover letter in the background. The client must subscribe to an SSE channel to wait for completion.
+If a `job_id` is returned, the system is generating Resume Or CV in the background. Subscribe to the SSE channel to be notified when they are ready.
 
 ### Endpoint
 `GET /events/subscribe/:jobId`
 
 ### Mechanism
-*   This endpoint opens a Server-Sent Events (SSE) stream.
-*   The client should listen for messages on this stream.
+*   Opens a **Server-Sent Events (SSE)** stream.
+*   The client listens for a `completed` or `failed` status.
+*   The server automatically closes the connection after the event is emitted.
 
-### Events
-The stream will emit a JSON object indicating the status:
-
-**Success:**
+#### Success Event
 ```json
-{
-  "data": {
-    "status": "completed"
-  }
-}
+{ "data": { "status": "completed" } }
 ```
-
-**Failure:**
-```json
-{
-  "data": {
-    "status": "failed",
-    "error": "Error message details"
-  }
-}
-```
-
-> **Note**: The SSE connection is closed automatically by the server after the event is emitted.
 
 ---
 
-## 3. Fetch Final Results
+## 3️⃣ Step 3: Fetch Final Results
 
-Once the `completed` event is received, fetch the final data, which will now include the generated Resume/CV URLs.
+Once the `completed` event is received, fetch the final data. This will include the matching scores and generated file URLs.
 
 ### Endpoint
 `GET /completions/result/:jobId`
 
-### Response
+### Response Scenarios
+
+#### Scenario A: Requirements Met (Success)
+When the applicant meets the core requirements, generated URLs are provided.
+
 ```json
 {
-  "success": true,
-  "data": {
-    "overall_match": 85,
-    "can_apply": true,
-    "generated_content": {
-      "resume": {
-        "field_id": "resume_upload",
-        "field_value": "https://storage.googleapis.com/.../resume.pdf"
-      },
-      "cover_letter": null,
-      "job_description_required": false
-    },
-    "completions_reference": "CMP_12345"
-  }
+    "success": true,
+    "data": {
+        "overall_match": 74.81,
+        "requirement_not_met": null,
+        "can_apply": true,
+        "generated_content": {
+            "resume": {
+                "field_id": "resume_upload_field",
+                "field_value": "https://prewrite-dev.s3.eu-north-1.amazonaws.com/uploads/1763974894484-resume_1763974894484.pdf?..."
+            },
+            "cover_letter": {
+                "field_id": "cover_letter",
+                "field_value": "https://prewrite-dev.s3.eu-north-1.amazonaws.com/uploads/1763974901587-cv_1763974901587.pdf?..."
+            },
+            "job_description_required": false
+        },
+        "completions_reference": "CMP_12345"
+    }
 }
 ```
 
+#### Scenario B: Requirements Not Met
+When core requirements (e.g., language proficiency) are missing from the user's profile.
+
+```json
+{
+    "success": true,
+    "data": {
+        "overall_match": 69.03,
+        "requirement_not_met": [
+            "Strong requirement could not be found for 'Proficient in French' in otherInfos (Score: 0.00)"
+        ],
+        "can_apply": false,
+        "generated_content": {
+            "resume": null,
+            "cover_letter": null,
+            "job_description_required": false
+        },
+        "completions_reference": "CMP_JO5K07MWTXXU"
+    }
+}
+```
+
+### Data Field Definitions
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `overall_match` | `float` | Percentage score indicating how well the user matches the job. |
+| `requirement_not_met` | `string[] \| null` | List of missing requirements that caused a match failure. |
+| `can_apply` | `boolean` | Indicates if the user is recommended to proceed with applying. |
+| `generated_content` | `object` | Contains `resume` and `cover_letter` objects (or `null`). |
+| `field_id` | `string` | The ID of the form field where the file should be uploaded. |
+| `field_value` | `string` | The S3 signed URL for the generated document. |
+
+> [!NOTE]
+> `resume` and `cover_letter` are **nullable**. Always check for their existence before attempting to download.
+
 ---
 
-## Backend Implementation Reference
-*   **Initiation**: `AutocompleteController.AutoCompleteForm` (`src/autocomplete/autocomplete.controller.ts`)
-*   **Async Processing**: `DelayedJobConsumer` (`src/infastructure/queues/consumers/delayed.job.consumer.ts`) triggers the `ContentGeneratorConsumer`.
-*   **SSE Channel**: `EventController.subscribe` (`src/event/event.controller.ts`) listens to `EventsService`.
-*   **Confirmation**: When `DelayedJobConsumer` finishes a job, it calls `eventService.emit(job.id, { status: 'completed' })`, which resolves the client's SSE connection.
+## 🛠 Backend Reference
+*   **Controller**: `src/autocomplete/autocomplete.controller.ts`
+*   **Queue Consumer**: `src/infastructure/queues/consumers/delayed.job.consumer.ts`
+*   **SSE Events**: `src/event/event.controller.ts`

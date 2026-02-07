@@ -76,101 +76,63 @@ export async function initiateAutocomplete(payload: PrewritePageData): Promise<A
  * Subscribe to job completion via SSE - GET /events/subscribe/:jobId
  * Uses fetch instead of EventSource to support Authorization header
  */
-export async function subscribeToJob(
+
+/**
+ * Poll for job completion - GET /completions/result/:jobId
+ * Retries until successful response or timeout
+ */
+export async function pollJobResult(
   jobId: string,
-  onMessage: (data: { status: 'completed' | 'failed'; error?: string }) => void,
-  onError?: (error: Error) => void
-): Promise<() => void> {
-  const session = await getAuthSession();
-  const abortController = new AbortController();
+  intervalMs = 15000,
+  maxAttempts = 8
+): Promise<CompletionResult> {
+  let attempts = 0;
 
-  const headers: HeadersInit = {
-    'Accept': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-  };
+  while (attempts < maxAttempts) {
+    try {
+      // Try to get the result
+      const result = await getCompletionResult(jobId);
 
-  if (session?.accessToken) {
-    headers['Authorization'] = `Bearer ${session.accessToken}`;
-  }
-
-  try {
-    const response = await fetch(`${BASE_URL}/events/subscribe/${jobId}`, {
-      method: 'GET',
-      headers,
-      signal: abortController.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`SSE connection failed: ${response.status}`);
-    }
-
-    if (!response.body) {
-      throw new Error('SSE response has no body');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    // Process stream
-    const processStream = async () => {
-      try {
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-
-          // Parse SSE messages (format: "data: {...}\n\n")
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const jsonStr = line.slice(6).trim();
-                if (jsonStr) {
-                  const data = JSON.parse(jsonStr);
-                  onMessage(data);
-
-                  // Close after receiving completion
-                  if (data.status === 'completed' || data.status === 'failed') {
-                    abortController.abort();
-                    return;
-                  }
-                }
-              } catch (e) {
-                console.error('[Prewrite] SSE parse error:', e);
-              }
-            }
-          }
-        }
-      } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
-          console.error('[Prewrite] SSE stream error:', e);
-          onError?.(e as Error);
-        }
+      // Only return if overall_match is a number (job complete)
+      if (typeof result.overall_match === 'number') {
+        return result;
       }
-    };
+    } catch (error) {
+      // If error is 404 (Not Found) or 202 (Accepted), continue polling
+      // Otherwise, log error but maybe retry anyway?
+      // For now, we assume any error means not ready or temporary failure
 
-    processStream();
-  } catch (e) {
-    console.error('[Prewrite] SSE connection error:', e);
-    onError?.(e as Error);
+      // Check if it's a permanent error? 
+      // Assuming 404 means 'not ready yet'
+    }
+
+    attempts++;
+    // Wait before next attempt
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
 
-  // Return cleanup function
-  return () => abortController.abort();
+  throw new Error('Timeout waiting for job completion');
 }
 
 /**
  * Get completion result - GET /completions/result/:jobId
  */
 export async function getCompletionResult(jobId: string): Promise<CompletionResult> {
-  const response = await api.post<{ success: boolean; data: CompletionResult }>(`/completions/result/${jobId}`);
+  const response = await api.get<{ success: boolean; data: CompletionResult }>(`/completions/result/${jobId}`);
   return response.data.data;
+}
+
+/**
+ * Force apply for a job
+ */
+export async function forceApply(completionsReference: string, jobReference: string): Promise<CompletionResult> {
+  const response = await api.post<{ success: boolean; data: { job_id: string } }>('/completions/force-apply', {
+    completions_reference: completionsReference,
+    job_reference: jobReference
+  });
+
+  const newJobId = response.data.data.job_id;
+  return pollJobResult(newJobId);
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   Button,
   ThemeToggle
 } from '@/components/ui';
-import type { AutofillField } from '@/types/schema';
+import type { AutofillField, CompletionResult } from '@/types/schema';
 import '@/assets/floating.css';
 
 export default defineContentScript({
@@ -109,6 +109,9 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
   const [hasScanned, setHasScanned] = useState(false);
   const [autofillStatus, setAutofillStatus] = useState<AutofillStatus>('idle');
   const [autofillError, setAutofillError] = useState<string | null>(null);
+  const [generatedFiles, setGeneratedFiles] = useState<{ resume?: string, cover_letter?: string }>({});
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [completionsReference, setCompletionsReference] = useState<string | null>(null);
   const [autofillData, setAutofillData] = useState<AutofillField[] | null>(null);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
   const mountedRef = useRef(false);
@@ -141,6 +144,7 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
       setSelectedFields(new Set(data.form_fields.map(f => f.field_id)));
     }
   }, [data]);
+
 
   // Check if we should show pulse (has form fields but not expanded)
   const shouldPulse = data && data.form_fields.length > 0 && !isExpanded && autofillStatus === 'idle';
@@ -195,6 +199,9 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
       if (response.status === 'processing') {
         // Async job started - show generating message
         setAutofillStatus('generating');
+        if (response.response?.job_id) {
+          setJobId(response.response.job_id);
+        }
       } else if (response.status === 'complete') {
         // Immediate response - apply autofill
         setAutofillData(response.response.autofill_data);
@@ -260,6 +267,8 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
                 radio.dispatchEvent(new Event('change', { bubbles: true }));
               }
             });
+          } else if (inputType === 'file') {
+            console.warn('[Prewrite] Cannot programmatically set file input value. User must upload manually:', field.field_value);
           } else {
             // Text, email, tel, number, etc.
             element.value = field.field_value;
@@ -300,6 +309,64 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
       }
     });
   }, []);
+
+  // Listen for background messages (Async job completion)
+  useEffect(() => {
+    const messageListener = (message: any) => {
+      if (message.type === 'JOB_COMPLETED') {
+        console.log('[Prewrite] Async job completed:', message.data);
+        const result = message.data as CompletionResult;
+
+        if (result.completions_reference) {
+          setCompletionsReference(result.completions_reference);
+        }
+
+        const newFields: AutofillField[] = [];
+        const files: { resume?: string, cover_letter?: string } = {};
+
+        if (result.generated_content?.resume) {
+          files.resume = result.generated_content.resume.field_value;
+          newFields.push({
+            field_id: result.generated_content.resume.field_id,
+            field_value: result.generated_content.resume.field_value,
+            field_type: 'file'
+          });
+        }
+
+        if (result.generated_content?.cover_letter) {
+          files.cover_letter = result.generated_content.cover_letter.field_value;
+          newFields.push({
+            field_id: result.generated_content.cover_letter.field_id,
+            field_value: result.generated_content.cover_letter.field_value,
+            field_type: 'file'
+          });
+        }
+
+        setGeneratedFiles(files);
+
+        if (newFields.length > 0) {
+          // Merge with existing autofill data if needed
+          const currentSelectedFields = data?.form_fields?.map(f => f.field_id) || [];
+          applyAutofill(newFields, new Set(currentSelectedFields));
+        }
+
+        if (!result.can_apply) {
+          setAutofillError(result.requirement_not_met ? result.requirement_not_met.join('\n') : 'Requirements not met');
+          setAutofillStatus('error');
+        } else {
+          setAutofillStatus('complete');
+        }
+
+      } else if (message.type === 'JOB_FAILED') {
+        console.error('[Prewrite] Async job failed:', message.error);
+        setAutofillError(message.error || 'Generation failed');
+        setAutofillStatus('error');
+      }
+    };
+
+    browser.runtime.onMessage.addListener(messageListener);
+    return () => browser.runtime.onMessage.removeListener(messageListener);
+  }, [data, applyAutofill]);
 
   return (
     <div className={`prewrite-floating-root ${isDark ? 'pw-dark' : ''}`}>
@@ -372,14 +439,94 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
               <div className="pw-floating-panel-success">
                 <div className="pw-success-icon">✓</div>
                 <p>Fields filled successfully!</p>
-                <Button onClick={() => setAutofillStatus('idle')} variant="secondary">
+                {generatedFiles.resume && (
+                  <a
+                    href={generatedFiles.resume}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="pw-btn pw-btn-secondary"
+                    style={{ marginTop: 8, display: 'block', textDecoration: 'none', width: '100%', textAlign: 'center' }}
+                  >
+                    Download Resume
+                  </a>
+                )}
+                {generatedFiles.cover_letter && (
+                  <a
+                    href={generatedFiles.cover_letter}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="pw-btn pw-btn-secondary"
+                    style={{ marginTop: 8, display: 'block', textDecoration: 'none', width: '100%', textAlign: 'center' }}
+                  >
+                    Download Cover Letter
+                  </a>
+                )}
+                <Button onClick={() => setAutofillStatus('idle')} variant="secondary" style={{ marginTop: 8, width: '100%' }}>
                   Done
                 </Button>
               </div>
             ) : autofillStatus === 'error' ? (
               <div className="pw-floating-panel-error">
-                <p>{autofillError || 'Something went wrong'}</p>
-                <Button onClick={() => setAutofillStatus('idle')} variant="secondary">
+                <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px', color: 'var(--pw-text-primary)' }}>
+                  {(generatedFiles.resume || generatedFiles.cover_letter) ? 'Generated with Warnings' : 'Unable to Generate Resume/CV'}
+                </h3>
+                <div style={{ textAlign: 'left', width: '100%', marginBottom: 16 }}>
+                  {autofillError ? autofillError.split('\n').map((err, i) => (
+                    <div key={i} style={{
+                      fontSize: '13px',
+                      color: 'var(--pw-text-primary)',
+                      lineHeight: '1.5',
+                      marginBottom: '8px',
+                      display: 'flex',
+                      gap: '6px'
+                    }}>
+                      <span style={{ color: 'var(--pw-error)', flexShrink: 0 }}>•</span>
+                      <span>{err}</span>
+                    </div>
+                  )) : (
+                    <p style={{ color: 'var(--pw-text-secondary)' }}>Something went wrong</p>
+                  )}
+                </div>
+                {generatedFiles.resume && (
+                  <a
+                    href={generatedFiles.resume}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="pw-btn pw-btn-secondary"
+                    style={{ marginTop: 8, display: 'block', textDecoration: 'none', width: '100%', textAlign: 'center' }}
+                  >
+                    Download Resume
+                  </a>
+                )}
+                {generatedFiles.cover_letter && (
+                  <a
+                    href={generatedFiles.cover_letter}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="pw-btn pw-btn-secondary"
+                    style={{ marginTop: 8, display: 'block', textDecoration: 'none', width: '100%', textAlign: 'center' }}
+                  >
+                    Download Cover Letter
+                  </a>
+                )}
+                <Button
+                  onClick={() => {
+                    if (jobId && completionsReference) {
+                      setAutofillStatus('generating');
+                      setAutofillError(null);
+                      browser.runtime.sendMessage({
+                        type: 'AUTOFILL_FORCE_APPLY',
+                        payload: { jobReference: jobId, completionsReference }
+                      });
+                    }
+                  }}
+                  variant="secondary"
+                  style={{ marginTop: 8, width: '100%' }}
+                  disabled={!jobId || !completionsReference}
+                >
+                  Force Apply
+                </Button>
+                <Button onClick={() => setAutofillStatus('idle')} variant="secondary" style={{ marginTop: 8, width: '100%' }}>
                   Try Again
                 </Button>
               </div>
