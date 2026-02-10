@@ -6,6 +6,7 @@ import type { PrewritePageData } from '@/types/schema';
 import { extractFormFields } from './formFieldExtractor';
 import { detectActionButtons, detectMultiPageForm } from './buttonDetector';
 import { extractJobMetadata } from './metadataExtractor';
+import { detectJobListPage } from './jobListDetector';
 
 /**
  * Scans the current page and returns structured data matching the schema
@@ -20,9 +21,14 @@ export function scanPage(): PrewritePageData {
 
   // Extract job metadata
   const metadata = extractJobMetadata();
+  console.log(metadata)
 
   // Detect multi-page form
   const { isMultiPage, estimatedStep } = detectMultiPageForm(document);
+
+  // Detect if this is a job listing page
+  const jobListDetection = detectJobListPage();
+  console.log('[Prewrite] Job list detection:', jobListDetection);
 
   return {
     page_url: window.location.href,
@@ -36,6 +42,7 @@ export function scanPage(): PrewritePageData {
       detected_multi_page: isMultiPage,
       estimated_step: estimatedStep,
     },
+    job_list_detection: jobListDetection,
   };
 }
 
@@ -43,5 +50,6 @@ export function scanPage(): PrewritePageData {
 export { extractFormFields } from './formFieldExtractor';
 export { detectActionButtons, detectMultiPageForm } from './buttonDetector';
 export { extractJobMetadata } from './metadataExtractor';
+export { detectJobListPage } from './jobListDetector';
 export { findLabel } from './findLabel';
 export { getSectionContext } from './getSectionContext';

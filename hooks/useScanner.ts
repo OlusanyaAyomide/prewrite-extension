@@ -132,6 +132,11 @@ async function scanAllFrames(tabId: number): Promise<PrewritePageData | null> {
           detected_multi_page: allButtons.some((b) => b.button_type === 'PREVIOUS'),
           estimated_step: mainPageData?.form_metadata?.estimated_step || 1,
         },
+        job_list_detection: mainPageData?.job_list_detection || {
+          is_job_list_page: false,
+          confidence: 0,
+          estimated_job_count: 0,
+        },
       };
     }
 

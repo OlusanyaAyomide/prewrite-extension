@@ -31,6 +31,12 @@ export interface FormMetadata {
   estimated_step: number;
 }
 
+export interface JobListDetection {
+  is_job_list_page: boolean;
+  confidence: number;
+  estimated_job_count: number;
+}
+
 export interface PrewritePageData {
   page_url: string;
   page_title: string;
@@ -40,6 +46,7 @@ export interface PrewritePageData {
   form_fields: FormField[];
   action_buttons: ActionButton[];
   form_metadata: FormMetadata;
+  job_list_detection: JobListDetection;
 }
 
 /**

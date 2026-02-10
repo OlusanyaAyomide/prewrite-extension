@@ -104,6 +104,7 @@ interface FloatingButtonProps {
 
 function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [jdExpanded, setJdExpanded] = useState(false);
   const { isDark, toggle } = useTheme();
   const { data, isLoading, error, scan } = useContentScanner();
   const [hasScanned, setHasScanned] = useState(false);
@@ -146,8 +147,12 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
   }, [data]);
 
 
-  // Check if we should show pulse (has form fields but not expanded)
-  const shouldPulse = data && data.form_fields.length > 0 && !isExpanded && autofillStatus === 'idle';
+  // Check if we should show pulse (has form fields or descriptions but not expanded)
+  const hasContent = data && (data.form_fields.length > 0 || data.proposed_job_descriptions.length > 0);
+  const shouldPulse = hasContent && !isExpanded && autofillStatus === 'idle';
+  const badgeCount = data ? (data.form_fields.length > 0 ? data.form_fields.length : data.proposed_job_descriptions.length) : 0;
+  const isJobListPage = data?.job_list_detection?.is_job_list_page ?? false;
+  const estimatedJobCount = data?.job_list_detection?.estimated_job_count ?? 0;
 
   // Toggle field selection
   const toggleField = useCallback((fieldId: string) => {
@@ -382,8 +387,8 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
             alt="Prewrite"
             className="pw-floating-btn-icon"
           />
-          {shouldPulse && (
-            <span className="pw-floating-btn-badge">{data.form_fields.length}</span>
+          {shouldPulse && badgeCount > 0 && (
+            <span className="pw-floating-btn-badge">{badgeCount}</span>
           )}
         </button>
       )}
@@ -492,6 +497,7 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
                     href={generatedFiles.resume}
                     target="_blank"
                     rel="noopener noreferrer"
+                    download
                     className="pw-btn pw-btn-secondary"
                     style={{ marginTop: 8, display: 'block', textDecoration: 'none', width: '100%', textAlign: 'center' }}
                   >
@@ -501,6 +507,7 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
                 {generatedFiles.cover_letter && (
                   <a
                     href={generatedFiles.cover_letter}
+                    download
                     target="_blank"
                     rel="noopener noreferrer"
                     className="pw-btn pw-btn-secondary"
@@ -532,6 +539,23 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
               </div>
             ) : data ? (
               <>
+                {/* Job List Page Banner */}
+                {isJobListPage && (
+                  <div className="pw-job-list-banner">
+                    <div className="pw-job-list-banner-icon">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="pw-job-list-banner-text">
+                      <span className="pw-job-list-banner-title">Job Listings Page</span>
+                      <span className="pw-job-list-banner-desc">
+                        This appears to be a listings page{estimatedJobCount > 0 ? ` (~${estimatedJobCount} jobs)` : ''}. Navigate to a specific job posting for best results.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Metadata Card */}
                 {(data.proposed_company_names.length > 0 || data.proposed_job_titles.length > 0) && (
                   <div className="pw-floating-panel-section">
@@ -546,44 +570,89 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
                   </div>
                 )}
 
-                {/* Detected Fields */}
-                <div className="pw-floating-panel-section">
-                  <div className="pw-section-header">
-                    <span className="pw-section-title">Detected Fields</span>
-                    <span className="pw-section-count">{selectedFields.size}/{data.form_fields.length}</span>
-                  </div>
-                  <div className="pw-field-list">
-                    {data.form_fields.map((field) => (
-                      <label key={field.field_id} className="pw-field-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedFields.has(field.field_id)}
-                          onChange={() => toggleField(field.field_id)}
-                        />
-                        <span className="pw-field-label">{field.field_label || field.field_name || field.field_id}</span>
-                        <span className="pw-field-type">{field.field_type}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Autofill Button */}
-                <div className="pw-floating-panel-footer">
-                  <Button
-                    onClick={handleAutofill}
-                    disabled={autofillStatus === 'autofilling' || selectedFields.size === 0}
-                    className="pw-autofill-btn"
-                  >
-                    {autofillStatus === 'autofilling' ? (
-                      <>
-                        <div className="pw-spinner-small" />
-                        Filling...
-                      </>
-                    ) : (
-                      <>AutoFill with Prewrite</>
+                {/* Job Description Section (Collapsible) */}
+                {data.proposed_job_descriptions.length > 0 && (
+                  <div className="pw-floating-panel-section">
+                    <button
+                      className="pw-jd-toggle"
+                      onClick={() => setJdExpanded(!jdExpanded)}
+                    >
+                      <span className="pw-section-title">Job Description</span>
+                      <div className="pw-jd-toggle-right">
+                        <span className="pw-section-count">{data.proposed_job_descriptions.length} section{data.proposed_job_descriptions.length !== 1 ? 's' : ''}</span>
+                        <svg
+                          className={`pw-jd-chevron ${jdExpanded ? 'pw-jd-chevron-open' : ''}`}
+                          width="14"
+                          height="14"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    </button>
+                    {jdExpanded && (
+                      <div className="pw-jd-content">
+                        {data.proposed_job_descriptions.map((desc, i) => (
+                          <div key={i} className="pw-jd-item">
+                            {desc.split('\n').map((line, j) => {
+                              if (line.startsWith('**') && line.endsWith('**')) {
+                                return <strong key={j} className="pw-jd-heading">{line.replace(/\*\*/g, '')}</strong>;
+                              }
+                              if (line.startsWith('• ')) {
+                                return <div key={j} className="pw-jd-bullet">{line}</div>;
+                              }
+                              return line ? <p key={j} className="pw-jd-text">{line}</p> : null;
+                            })}
+                          </div>
+                        ))}
+                      </div>
                     )}
-                  </Button>
-                </div>
+                  </div>
+                )}
+
+                {/* Detected Fields */}
+                {data.form_fields.length > 0 && (
+                  <div className="pw-floating-panel-section">
+                    <div className="pw-section-header">
+                      <span className="pw-section-title">Detected Fields</span>
+                      <span className="pw-section-count">{selectedFields.size}/{data.form_fields.length}</span>
+                    </div>
+                    <div className="pw-field-list">
+                      {data.form_fields.map((field) => (
+                        <label key={field.field_id} className="pw-field-item">
+                          <input
+                            type="checkbox"
+                            checked={selectedFields.has(field.field_id)}
+                            onChange={() => toggleField(field.field_id)}
+                          />
+                          <span className="pw-field-label">{field.field_label || field.field_name || field.field_id}</span>
+                          <span className="pw-field-type">{field.field_type}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Autofill Button (only when form fields exist) */}
+                {data.form_fields.length > 0 && (
+                  <div className="pw-floating-panel-footer">
+                    <Button
+                      onClick={handleAutofill}
+                      disabled={autofillStatus === 'autofilling' || selectedFields.size === 0}
+                      className="pw-autofill-btn"
+                    >
+                      {autofillStatus === 'autofilling' ? (
+                        <>
+                          <div className="pw-spinner-small" />
+                          Filling...
+                        </>
+                      ) : (
+                        <>AutoFill with Prewrite</>
+                      )}
+                    </Button>
+                  </div>
+                )}
               </>
             ) : (
               <div className="pw-floating-panel-empty">

@@ -442,7 +442,18 @@ export function extractJobDescriptions(): string[] {
     }
   }
 
-  // 3. SIBLING-TRAVERSAL STRATEGY: Find headers with keywords
+  // 3. CONTENT-BLOCK STRATEGY: Find deepest container with multiple JD-keyword headers
+  // Handles Google Careers (headers inside separate parent divs) and similar patterns
+  const contentBlockDescriptions = extractFromContentBlocks();
+  contentBlockDescriptions.forEach((desc) => {
+    const key = desc.substring(0, 100);
+    if (!seen.has(key)) {
+      seen.add(key);
+      descriptions.push(desc);
+    }
+  });
+
+  // 4. SIBLING-TRAVERSAL STRATEGY: Find headers with keywords
   const headers = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
   headers.forEach((header) => {
     const headerText = header.textContent?.toLowerCase().trim() || '';
@@ -452,7 +463,15 @@ export function extractJobDescriptions(): string[] {
     );
 
     if (matchesKeyword) {
-      const content = extractSiblingContent(header as HTMLElement);
+      // Try direct sibling content first
+      let content = extractSiblingContent(header as HTMLElement);
+
+      // If no sibling content found, try parent container strategy
+      // (for sites like Google where header + content are wrapped in a div)
+      if (!content || content.length < 20) {
+        content = extractFromParentContainer(header as HTMLElement);
+      }
+
       if (content && content.length > 20) {
         const sectionTitle = header.textContent?.trim() || '';
         const fullContent = sectionTitle ? `**${sectionTitle}**\n${content}` : content;
@@ -465,7 +484,7 @@ export function extractJobDescriptions(): string[] {
     }
   });
 
-  // 4. PHRASE-BASED EXTRACTION: Search for key phrases in text content
+  // 5. PHRASE-BASED EXTRACTION: Search for key phrases in text content
   const phraseMatches = extractDescriptionsByPhrasePatterns();
   phraseMatches.forEach((match) => {
     const key = match.substring(0, 100);
@@ -475,24 +494,24 @@ export function extractJobDescriptions(): string[] {
     }
   });
 
-  // 5. Check common selectors as fallback
+  // 6. Check common selectors as fallback
   for (const selector of JOB_DESCRIPTION_SELECTORS) {
     try {
       const elements = document.querySelectorAll(selector);
       elements.forEach((el) => {
         const text = el.textContent?.trim();
-        if (text && text.length > 50 && text.length < 3000) {
+        if (text && text.length > 50 && text.length < 5000) {
           const cleaned = cleanDescription(text);
           if (!seen.has(cleaned.substring(0, 100))) {
             seen.add(cleaned.substring(0, 100));
-            descriptions.push(cleaned.length > 800 ? cleaned.substring(0, 800) + '...' : cleaned);
+            descriptions.push(cleaned.length > 3000 ? cleaned.substring(0, 3000) + '...' : cleaned);
           }
         }
       });
     } catch { /* ignore selector errors */ }
   }
 
-  return descriptions.slice(0, 8);
+  return descriptions.slice(0, 12);
 }
 
 /**
@@ -615,7 +634,7 @@ function extractByPhrasePatterns(phrases: string[], maxLength: number): string[]
 function extractSiblingContent(header: HTMLElement): string {
   const contentParts: string[] = [];
   let sibling = header.nextElementSibling;
-  let maxSiblings = 5;
+  let maxSiblings = 15;
 
   while (sibling && maxSiblings > 0) {
     const tagName = sibling.tagName.toLowerCase();
@@ -632,10 +651,24 @@ function extractSiblingContent(header: HTMLElement): string {
           contentParts.push(`• ${text}`);
         }
       });
-    } else if (tagName === 'p' || tagName === 'div') {
-      const text = sibling.textContent?.trim();
-      if (text && text.length > 10) {
-        contentParts.push(text);
+    } else if (['p', 'div', 'span', 'section', 'article', 'blockquote'].includes(tagName)) {
+      // Check for nested lists first
+      const nestedLists = sibling.querySelectorAll('ul, ol');
+      if (nestedLists.length > 0) {
+        nestedLists.forEach((list) => {
+          const items = list.querySelectorAll('li');
+          items.forEach((item) => {
+            const text = item.textContent?.trim();
+            if (text) {
+              contentParts.push(`• ${text}`);
+            }
+          });
+        });
+      } else {
+        const text = sibling.textContent?.trim();
+        if (text && text.length > 5) {
+          contentParts.push(text);
+        }
       }
     } else if (sibling.querySelector('ul, ol, p')) {
       const lists = sibling.querySelectorAll('ul, ol');
@@ -648,6 +681,14 @@ function extractSiblingContent(header: HTMLElement): string {
           }
         });
       });
+      // Also grab standalone paragraphs not inside lists
+      const paragraphs = sibling.querySelectorAll('p');
+      paragraphs.forEach((p) => {
+        const text = p.textContent?.trim();
+        if (text && text.length > 5 && !p.closest('ul, ol')) {
+          contentParts.push(text);
+        }
+      });
     }
 
     sibling = sibling.nextElementSibling;
@@ -655,6 +696,123 @@ function extractSiblingContent(header: HTMLElement): string {
   }
 
   return contentParts.join('\n');
+}
+
+/**
+ * Extract content from parent container when header is wrapped inside a div
+ * (Google Careers pattern: <div class="..."><h3>Title</h3><ul>...</ul></div>)
+ */
+function extractFromParentContainer(header: HTMLElement): string {
+  const parent = header.parentElement;
+  if (!parent) return '';
+
+  const parentTag = parent.tagName.toLowerCase();
+  // Only proceed if parent is a container element (not body/main)
+  if (['body', 'html', 'main'].includes(parentTag)) return '';
+
+  const contentParts: string[] = [];
+
+  // Extract all content from the parent container, excluding the header itself
+  const children = Array.from(parent.children);
+  for (const child of children) {
+    if (child === header) continue;
+
+    const tag = child.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) continue; // Skip other headers
+
+    // Extract lists
+    const lists = child.querySelectorAll('ul, ol');
+    if (lists.length > 0) {
+      lists.forEach((list) => {
+        const items = list.querySelectorAll('li');
+        items.forEach((item) => {
+          const text = item.textContent?.trim();
+          if (text) contentParts.push(`• ${text}`);
+        });
+      });
+    } else if (tag === 'ul' || tag === 'ol') {
+      const items = child.querySelectorAll('li');
+      items.forEach((item) => {
+        const text = item.textContent?.trim();
+        if (text) contentParts.push(`• ${text}`);
+      });
+    } else {
+      const text = child.textContent?.trim();
+      if (text && text.length > 5) {
+        contentParts.push(text);
+      }
+    }
+  }
+
+  return contentParts.join('\n');
+}
+
+/**
+ * Content block extraction strategy
+ * Finds descendant containers that hold multiple JD-keyword headers
+ * then extracts all section content from them
+ */
+function extractFromContentBlocks(): string[] {
+  const results: string[] = [];
+
+  // Find all headers on the page that match JD keywords
+  const allHeaders = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  const matchingHeaders: HTMLElement[] = [];
+
+  allHeaders.forEach((header) => {
+    const text = header.textContent?.toLowerCase().trim() || '';
+    if (DESCRIPTION_KEYWORDS.some((kw) => text.includes(kw))) {
+      matchingHeaders.push(header as HTMLElement);
+    }
+  });
+
+  if (matchingHeaders.length < 2) return results;
+
+  // Find the deepest common ancestor of all matching headers
+  const commonAncestor = findCommonAncestor(matchingHeaders);
+  if (!commonAncestor) return results;
+
+  // Walk through the common ancestor's children to extract sections
+  const seenHeaders = new Set<string>();
+
+  for (const header of matchingHeaders) {
+    const headerText = header.textContent?.trim() || '';
+    if (seenHeaders.has(headerText)) continue;
+    seenHeaders.add(headerText);
+
+    // Try parent container strategy first (Google pattern)
+    let content = extractFromParentContainer(header);
+
+    // Fall back to sibling traversal
+    if (!content || content.length < 20) {
+      content = extractSiblingContent(header);
+    }
+
+    if (content && content.length > 20) {
+      results.push(`**${headerText}**\n${content}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Find the deepest common ancestor of multiple elements
+ */
+function findCommonAncestor(elements: HTMLElement[]): HTMLElement | null {
+  if (elements.length === 0) return null;
+  if (elements.length === 1) return elements[0].parentElement;
+
+  let ancestor: HTMLElement | null = elements[0].parentElement;
+
+  while (ancestor) {
+    if (elements.every((el) => ancestor!.contains(el))) {
+      return ancestor;
+    }
+    ancestor = ancestor.parentElement;
+  }
+
+  return null;
 }
 
 /**

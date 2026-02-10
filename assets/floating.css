@@ -591,3 +591,157 @@
   width: 20px;
   height: 20px;
 }
+
+/* ===== JOB DESCRIPTION SECTION ===== */
+.pw-jd-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--pw-bg-secondary);
+  border: 1px solid var(--pw-border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  color: var(--pw-text-primary);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.pw-jd-toggle:hover {
+  background: var(--pw-slate-200);
+}
+
+.prewrite-floating-root.pw-dark .pw-jd-toggle {
+  background: var(--pw-slate-800);
+}
+
+.prewrite-floating-root.pw-dark .pw-jd-toggle:hover {
+  background: var(--pw-slate-700);
+}
+
+.pw-jd-toggle-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pw-jd-chevron {
+  transition: transform 0.2s ease;
+  color: var(--pw-text-muted);
+}
+
+.pw-jd-chevron-open {
+  transform: rotate(180deg);
+}
+
+.pw-jd-content {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--pw-bg-secondary);
+  border: 1px solid var(--pw-border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--pw-text-primary);
+}
+
+.prewrite-floating-root.pw-dark .pw-jd-content {
+  background: var(--pw-slate-800);
+}
+
+.pw-jd-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.pw-jd-content::-webkit-scrollbar-thumb {
+  background-color: var(--pw-slate-300);
+  border-radius: 2px;
+}
+
+.prewrite-floating-root.pw-dark .pw-jd-content::-webkit-scrollbar-thumb {
+  background-color: var(--pw-slate-600);
+}
+
+.pw-jd-item {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--pw-border-color);
+}
+
+.pw-jd-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.pw-jd-heading {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pw-brand-600);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.prewrite-floating-root.pw-dark .pw-jd-heading {
+  color: var(--pw-brand-400);
+}
+
+.pw-jd-bullet {
+  padding-left: 4px;
+  margin-bottom: 3px;
+  color: var(--pw-text-primary);
+  font-size: 12.5px;
+}
+
+.pw-jd-text {
+  margin-bottom: 4px;
+  color: var(--pw-text-secondary);
+  font-size: 12.5px;
+}
+
+/* ===== JOB LIST BANNER ===== */
+.pw-job-list-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.04));
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.prewrite-floating-root.pw-dark .pw-job-list-banner {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.06));
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.pw-job-list-banner-icon {
+  flex-shrink: 0;
+  color: var(--pw-warning);
+  margin-top: 1px;
+}
+
+.pw-job-list-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pw-job-list-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pw-text-primary);
+}
+
+.pw-job-list-banner-desc {
+  font-size: 12px;
+  color: var(--pw-text-secondary);
+  line-height: 1.4;
+}
