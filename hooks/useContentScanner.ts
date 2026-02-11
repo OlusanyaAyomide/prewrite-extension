@@ -7,6 +7,7 @@ interface UseContentScannerResult {
   isLoading: boolean;
   error: string | null;
   scan: () => Promise<void>;
+  reset: () => void;
 }
 
 /**
@@ -40,5 +41,12 @@ export function useContentScanner(): UseContentScannerResult {
     }
   }, []);
 
-  return { data, isLoading, error, scan };
+  const reset = useCallback(() => {
+    setData(null);
+    setError(null);
+    setIsLoading(false);
+  }, []);
+
+  return { data, isLoading, error, scan, reset };
 }
+

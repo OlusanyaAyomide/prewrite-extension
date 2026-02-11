@@ -1,16 +1,20 @@
-import type { FormField } from './schema';
+import type { FormField, PrewritePageData } from './schema';
 
 /**
  * Job session stored during application flow
  */
 export interface JobSession {
   id: string;
+  parentSessionId: string | null;
   domain: string;
   jobIdentifier: string;
   company: string | null;
   jobTitle: string | null;
   jobDescription: string | null;
   formFields: FormField[];
+  pageUrls: string[];
+  scannedData: PrewritePageData | null;
+  navigationLinks: string[];
   createdAt: number;
   lastAccessedAt: number;
 }

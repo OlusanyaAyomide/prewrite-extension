@@ -4,7 +4,7 @@
 
 export type FieldType = 'text' | 'number' | 'select' | 'textarea' | 'file' | 'date' | 'checkbox' | 'radio' | 'email' | 'tel' | 'url';
 
-export type ButtonType = 'SUBMIT' | 'PREVIOUS';
+export type ButtonType = 'SUBMIT' | 'PREVIOUS' | 'NAVIGATION';
 
 export interface FieldOption {
   value: string;
@@ -24,6 +24,8 @@ export interface FormField {
 export interface ActionButton {
   button_id: string;
   button_type: ButtonType;
+  button_text: string;
+  selector: string;
 }
 
 export interface FormMetadata {
@@ -45,6 +47,7 @@ export interface PrewritePageData {
   proposed_job_descriptions: string[];
   form_fields: FormField[];
   action_buttons: ActionButton[];
+  navigation_links: string[];
   form_metadata: FormMetadata;
   job_list_detection: JobListDetection;
 }

@@ -4,6 +4,7 @@ import * as blacklist from '@/lib/settings/domainBlacklist';
 import * as generatedContent from '@/lib/storage/generatedContent';
 import { initiateAutocomplete, pollJobResult, getCompletionResult, forceApply } from '@/lib/api/apiClient';
 import type { PrewritePageData, JobSession, GeneratedItem } from '@/types/schema';
+import { isJobPortalUrl } from '@/lib/jobPortalDetector';
 
 // Track tabs with active floating buttons
 const tabsWithFloatingButton = new Map<number, boolean>();
@@ -16,12 +17,8 @@ export default defineBackground(() => {
     tabsWithFloatingButton.delete(tabId);
   });
 
-  // Clean up when tabs navigate away
-  browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.url) {
-      tabsWithFloatingButton.delete(tabId);
-    }
-  });
+  // Note: We no longer clear floating button on URL change here.
+  // The content script handles re-initialization on URL change itself.
 
   // Handle extension icon click - open popup
   browser.action.onClicked.addListener(async (tab) => {
@@ -123,6 +120,7 @@ async function handleMessage(
       // ===== SESSION MANAGEMENT =====
       case 'SESSION_ADD': {
         const sessionData = message.session as Omit<JobSession, 'id' | 'createdAt' | 'lastAccessedAt'>;
+        console.log(sessionData)
         const newSession = await sessionManager.addSession(sessionData);
         sendResponse({ session: newSession });
         break;
@@ -158,6 +156,43 @@ async function handleMessage(
       case 'SESSION_CURRENT': {
         const session = await sessionManager.getCurrentSession();
         sendResponse({ session });
+        break;
+      }
+
+      case 'SESSION_LINK': {
+        const childId = message.childSessionId as string;
+        const parentId = message.parentSessionId as string;
+        await sessionManager.linkSession(childId, parentId);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'SESSION_UPDATE_DATA': {
+        const sessionId = message.sessionId as string;
+        const scannedData = message.scannedData as PrewritePageData;
+        await sessionManager.updateSessionPageData(sessionId, scannedData);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'SPA_DISPATCH_SAVE': {
+        const domain = message.domain as string;
+        const sessionId = message.sessionId as string;
+        await sessionManager.saveSpaDispatch(domain, sessionId);
+        sendResponse({ status: 'ok' });
+        break;
+      }
+
+      case 'SPA_DISPATCH_GET': {
+        const domain = message.domain as string;
+        const dispatch = await sessionManager.getSpaDispatch(domain);
+        sendResponse({ dispatch });
+        break;
+      }
+
+      case 'SPA_DISPATCH_CLEAR': {
+        await sessionManager.clearSpaDispatch();
+        sendResponse({ status: 'ok' });
         break;
       }
 
@@ -216,7 +251,7 @@ async function handleMessage(
       // ===== SITE STATUS (combined check) =====
       case 'SITE_STATUS': {
         const url = message.url as string;
-        const { isJobPortalUrl } = await import('@/lib/jobPortalDetector');
+
         const isJobPortal = isJobPortalUrl(url);
         const isBlocked = await blacklist.isBlacklisted(url);
         const isAllowed = await blacklist.isAllowlisted(url);

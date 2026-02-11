@@ -4,7 +4,7 @@
 
 import type { PrewritePageData } from '@/types/schema';
 import { extractFormFields } from './formFieldExtractor';
-import { detectActionButtons, detectMultiPageForm } from './buttonDetector';
+import { detectActionButtons, detectMultiPageForm, detectNavigationLinks } from './buttonDetector';
 import { extractJobMetadata } from './metadataExtractor';
 import { detectJobListPage } from './jobListDetector';
 
@@ -19,12 +19,15 @@ export function scanPage(): PrewritePageData {
   // Detect action buttons
   const actionButtons = detectActionButtons(document);
 
+  // Detect navigation links on the page
+  const navigationLinks = detectNavigationLinks(document);
+
   // Extract job metadata
   const metadata = extractJobMetadata();
   console.log(metadata)
 
   // Detect multi-page form
-  const { isMultiPage, estimatedStep } = detectMultiPageForm(document);
+  const isMultiPage = detectMultiPageForm(document);
 
   // Detect if this is a job listing page
   const jobListDetection = detectJobListPage();
@@ -38,9 +41,10 @@ export function scanPage(): PrewritePageData {
     proposed_job_descriptions: metadata.descriptions,
     form_fields: formFields,
     action_buttons: actionButtons,
+    navigation_links: navigationLinks,
     form_metadata: {
       detected_multi_page: isMultiPage,
-      estimated_step: estimatedStep,
+      estimated_step: 1,
     },
     job_list_detection: jobListDetection,
   };
@@ -48,7 +52,7 @@ export function scanPage(): PrewritePageData {
 
 // Re-export individual utilities for testing/debugging
 export { extractFormFields } from './formFieldExtractor';
-export { detectActionButtons, detectMultiPageForm } from './buttonDetector';
+export { detectActionButtons, detectMultiPageForm, detectNavigationLinks, detectSpaElements } from './buttonDetector';
 export { extractJobMetadata } from './metadataExtractor';
 export { detectJobListPage } from './jobListDetector';
 export { findLabel } from './findLabel';

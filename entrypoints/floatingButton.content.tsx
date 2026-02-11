@@ -4,13 +4,35 @@ import { isJobPortalUrl } from '@/lib/jobPortalDetector';
 import { isBlacklisted, isAllowlisted } from '@/lib/settings/domainBlacklist';
 import { useContentScanner } from '@/hooks/useContentScanner';
 import { useTheme } from '@/hooks/useTheme';
-import { extractJobIdentifier } from '@/lib/session/sessionManager';
+import { extractJobIdentifier, generateSessionId } from '@/lib/session/sessionManager';
+import { detectSpaElements } from '@/lib/scanner/buttonDetector';
+import type { AutofillField, CompletionResult } from '@/types/schema';
+import type { JobSession } from '@/types/autofill';
 import {
   Button,
   ThemeToggle
 } from '@/components/ui';
-import type { AutofillField, CompletionResult } from '@/types/schema';
 import '@/assets/floating.css';
+
+// ===== HISTORY INTERCEPT (pushState/replaceState) =====
+// Monkey-patch history methods to fire a custom event on SPA navigations
+// Guarded for browser context only (WXT analyzes modules in Node)
+if (typeof window !== 'undefined' && typeof history !== 'undefined') {
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function (...args: Parameters<typeof history.pushState>) {
+    const result = originalPushState.apply(this, args);
+    window.dispatchEvent(new Event('prewrite:urlchange'));
+    return result;
+  };
+
+  history.replaceState = function (...args: Parameters<typeof history.replaceState>) {
+    const result = originalReplaceState.apply(this, args);
+    window.dispatchEvent(new Event('prewrite:urlchange'));
+    return result;
+  };
+}
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -105,8 +127,9 @@ interface FloatingButtonProps {
 function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [jdExpanded, setJdExpanded] = useState(false);
+  const [sessionExpanded, setSessionExpanded] = useState(false);
   const { isDark, toggle } = useTheme();
-  const { data, isLoading, error, scan } = useContentScanner();
+  const { data, isLoading, error, scan, reset } = useContentScanner();
   const [hasScanned, setHasScanned] = useState(false);
   const [autofillStatus, setAutofillStatus] = useState<AutofillStatus>('idle');
   const [autofillError, setAutofillError] = useState<string | null>(null);
@@ -115,7 +138,11 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
   const [completionsReference, setCompletionsReference] = useState<string | null>(null);
   const [autofillData, setAutofillData] = useState<AutofillField[] | null>(null);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessionData, setSessionData] = useState<JobSession | null>(null);
   const mountedRef = useRef(false);
+  const lastUrlRef = useRef(window.location.href);
+  const spaButtonListenersRef = useRef<Array<{ el: HTMLElement; handler: () => void }>>([]);
 
   // Notify on mount
   useEffect(() => {
@@ -130,6 +157,55 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
       }
     };
   }, [onMounted, onRemoved]);
+
+  // ===== URL CHANGE DETECTION =====
+  // Uses pushState/replaceState intercepts + popstate + polling fallback
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const newUrl = window.location.href;
+      if (newUrl !== lastUrlRef.current) {
+        console.log('[Prewrite] URL changed:', lastUrlRef.current, '->', newUrl);
+        lastUrlRef.current = newUrl;
+
+        // Reset all state for fresh session on new URL
+        reset();
+        setHasScanned(false);
+        setJdExpanded(false);
+        setAutofillStatus('idle');
+        setAutofillError(null);
+        setAutofillData(null);
+        setGeneratedFiles({});
+        setJobId(null);
+        setCompletionsReference(null);
+        setCurrentSessionId(null);
+        setSessionData(null);
+        setSessionExpanded(false);
+
+        // Clean up old SPA button listeners
+        cleanupSpaButtonListeners();
+
+        // Always re-scan on URL change (eagerly, regardless of panel state)
+        setTimeout(() => {
+          scan();
+          setHasScanned(true);
+        }, 500); // Small delay for DOM to settle after navigation
+      }
+    };
+
+    // Listen for browser back/forward
+    window.addEventListener('popstate', handleUrlChange);
+    // Listen for pushState/replaceState (our custom event)
+    window.addEventListener('prewrite:urlchange', handleUrlChange);
+
+    // Poll every 2 seconds as fallback for SPAs that don't use standard history APIs
+    const pollInterval = setInterval(handleUrlChange, 2000);
+
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('prewrite:urlchange', handleUrlChange);
+      clearInterval(pollInterval);
+    };
+  }, [reset, scan]);
 
   // Auto-scan on first expand
   useEffect(() => {
@@ -146,13 +222,156 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
     }
   }, [data]);
 
+  // Determine if this is a sessionless page (single job posting with only JD, no form, no multi-page)
+  const isJobListPage = data?.job_list_detection?.is_job_list_page ?? false;
+  const estimatedJobCount = data?.job_list_detection?.estimated_job_count ?? 0;
+  const isSessionless = data
+    ? (
+      data.form_fields.length === 0 &&
+      !data.form_metadata.detected_multi_page &&
+      !data.action_buttons.some(b => b.button_type === 'PREVIOUS') &&
+      data.proposed_job_descriptions.length > 0
+    )
+    : false;
+
+  // ===== AUTO-SESSION CREATION =====
+  // When scan completes with data, automatically create/update a session
+  // If linked to a parent (via SPA dispatch or link-based), update the parent session
+  // Otherwise create a new session
+  // Skip on job list pages and sessionless pages
+  useEffect(() => {
+    if (!data || isJobListPage || isSessionless) return;
+
+    const createSession = async () => {
+      try {
+        const currentUrl = window.location.href;
+        const domain = new URL(currentUrl).hostname;
+        const jobIdentifier = extractJobIdentifier(currentUrl);
+
+        // Check SPA dispatch — did the user click an application-flow button/link
+        // on a previous page that saved a dispatch for this domain?
+        let parentSessionId: string | null = null;
+
+        const spaDispatchResponse = await browser.runtime.sendMessage({
+          type: 'SPA_DISPATCH_GET',
+          domain,
+        });
+        if (spaDispatchResponse?.dispatch) {
+          parentSessionId = spaDispatchResponse.dispatch.sessionId;
+          console.log('[Prewrite] SPA dispatch matched, parent:', parentSessionId);
+          // Clear the dispatch now that it's been used
+          await browser.runtime.sendMessage({ type: 'SPA_DISPATCH_CLEAR' });
+        }
+
+        if (parentSessionId) {
+          // ===== LINKED SESSION: Update the parent with new page data =====
+          await browser.runtime.sendMessage({
+            type: 'SESSION_UPDATE_DATA',
+            sessionId: parentSessionId,
+            scannedData: data,
+          });
+          setCurrentSessionId(parentSessionId);
+          console.log('[Prewrite] Merged into parent session:', parentSessionId);
+        } else {
+          // ===== NEW SESSION: No parent found, create fresh =====
+          const response = await browser.runtime.sendMessage({
+            type: 'SESSION_ADD',
+            session: {
+              domain,
+              jobIdentifier,
+              company: data.proposed_company_names[0] || null,
+              jobTitle: data.proposed_job_titles[0] || null,
+              jobDescription: data.proposed_job_descriptions[0] || null,
+              formFields: data.form_fields,
+              scannedData: data,
+              navigationLinks: data.navigation_links || [],
+            }
+          });
+
+          if (response?.session?.id) {
+            setCurrentSessionId(response.session.id);
+            console.log('[Prewrite] New session created:', response.session.id);
+          }
+        }
+      } catch (err) {
+        console.error('[Prewrite] Failed to create/update session:', err);
+      }
+    };
+
+    createSession();
+  }, [data, isJobListPage, isSessionless]);
+
+  // ===== FETCH SESSION DATA =====
+  // When currentSessionId is set, fetch full session data for the dropdown
+  useEffect(() => {
+    if (!currentSessionId) {
+      setSessionData(null);
+      return;
+    }
+
+    const fetchSession = async () => {
+      try {
+        const response = await browser.runtime.sendMessage({
+          type: 'SESSION_GET',
+          id: currentSessionId,
+        });
+        if (response?.session) {
+          setSessionData(response.session);
+        }
+      } catch (err) {
+        console.error('[Prewrite] Failed to fetch session data:', err);
+      }
+    };
+
+    fetchSession();
+  }, [currentSessionId]);
+
+  // ===== SPA BUTTON EVENT ATTACHMENT =====
+  // After scan, attach click listeners to SPA navigation buttons
+  // (non-submit, non-link buttons with navigation-like text)
+  // Skip on job list pages and sessionless pages
+  useEffect(() => {
+    if (!data || data.action_buttons.length === 0 || isJobListPage || isSessionless) return;
+
+    // Clean up previous listeners
+    cleanupSpaButtonListeners();
+
+    const spaElements = detectSpaElements(document);
+
+    for (const el of spaElements) {
+      const handler = () => {
+        // Save SPA dispatch: domain + current session ID + timestamp
+        if (currentSessionId) {
+          const domain = new URL(window.location.href).hostname;
+          browser.runtime.sendMessage({
+            type: 'SPA_DISPATCH_SAVE',
+            domain,
+            sessionId: currentSessionId,
+          }).catch(err => console.error('[Prewrite] Failed to save SPA dispatch:', err));
+          console.log('[Prewrite] SPA dispatch saved for session:', currentSessionId);
+        }
+      };
+
+      el.addEventListener('click', handler, { capture: true });
+      spaButtonListenersRef.current.push({ el, handler });
+      console.log('[Prewrite] Attached SPA listener to button:', el.textContent?.trim());
+    }
+
+    return () => cleanupSpaButtonListeners();
+  }, [data, currentSessionId, isJobListPage, isSessionless]);
+
+  // Helper to clean up SPA button listeners
+  const cleanupSpaButtonListeners = useCallback(() => {
+    for (const { el, handler } of spaButtonListenersRef.current) {
+      el.removeEventListener('click', handler, { capture: true });
+    }
+    spaButtonListenersRef.current = [];
+  }, []);
 
   // Check if we should show pulse (has form fields or descriptions but not expanded)
   const hasContent = data && (data.form_fields.length > 0 || data.proposed_job_descriptions.length > 0);
   const shouldPulse = hasContent && !isExpanded && autofillStatus === 'idle';
   const badgeCount = data ? (data.form_fields.length > 0 ? data.form_fields.length : data.proposed_job_descriptions.length) : 0;
-  const isJobListPage = data?.job_list_detection?.is_job_list_page ?? false;
-  const estimatedJobCount = data?.job_list_detection?.estimated_job_count ?? 0;
 
   // Toggle field selection
   const toggleField = useCallback((fieldId: string) => {
@@ -188,6 +407,7 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
           jobTitle: data.proposed_job_titles[0] || null,
           jobDescription: data.proposed_job_descriptions[0] || null,
           formFields: data.form_fields,
+          navigationLinks: data.navigation_links || [],
         }
       });
 
@@ -611,6 +831,89 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
                   </div>
                 )}
 
+                {/* Session Data (Collapsible) */}
+                {sessionData && (
+                  <div className="pw-floating-panel-section">
+                    <button
+                      className="pw-jd-toggle"
+                      onClick={() => setSessionExpanded(!sessionExpanded)}
+                    >
+                      <span className="pw-section-title">Session Data</span>
+                      <div className="pw-jd-toggle-right">
+                        <span className="pw-section-count">{sessionData.id.slice(0, 12)}</span>
+                        <svg
+                          className={`pw-jd-chevron ${sessionExpanded ? 'pw-jd-chevron-open' : ''}`}
+                          width="14"
+                          height="14"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    </button>
+                    {sessionExpanded && (
+                      <div className="pw-session-data">
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Session ID</span>
+                          <span className="pw-session-value pw-session-mono">{sessionData.id}</span>
+                        </div>
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Domain</span>
+                          <span className="pw-session-value">{sessionData.domain}</span>
+                        </div>
+                        {sessionData.company && (
+                          <div className="pw-session-row">
+                            <span className="pw-session-label">Company</span>
+                            <span className="pw-session-value">{sessionData.company}</span>
+                          </div>
+                        )}
+                        {sessionData.jobTitle && (
+                          <div className="pw-session-row">
+                            <span className="pw-session-label">Job Title</span>
+                            <span className="pw-session-value">{sessionData.jobTitle}</span>
+                          </div>
+                        )}
+                        {sessionData.parentSessionId && (
+                          <div className="pw-session-row">
+                            <span className="pw-session-label">Parent Session</span>
+                            <span className="pw-session-value pw-session-mono">{sessionData.parentSessionId}</span>
+                          </div>
+                        )}
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Pages Visited</span>
+                          <span className="pw-session-value">{sessionData.pageUrls.length}</span>
+                        </div>
+                        {sessionData.pageUrls.length > 0 && (
+                          <div className="pw-session-urls">
+                            {sessionData.pageUrls.map((url, i) => (
+                              <div key={i} className="pw-session-url">
+                                {(() => { try { return new URL(url).pathname; } catch { return url; } })()}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Form Fields</span>
+                          <span className="pw-session-value">{sessionData.formFields.length}</span>
+                        </div>
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Nav Links</span>
+                          <span className="pw-session-value">{sessionData.navigationLinks.length}</span>
+                        </div>
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Created</span>
+                          <span className="pw-session-value">{new Date(sessionData.createdAt).toLocaleTimeString()}</span>
+                        </div>
+                        <div className="pw-session-row">
+                          <span className="pw-session-label">Last Active</span>
+                          <span className="pw-session-value">{new Date(sessionData.lastAccessedAt).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Detected Fields */}
                 {data.form_fields.length > 0 && (
                   <div className="pw-floating-panel-section">
@@ -619,8 +922,8 @@ function FloatingButton({ onMounted, onRemoved }: FloatingButtonProps) {
                       <span className="pw-section-count">{selectedFields.size}/{data.form_fields.length}</span>
                     </div>
                     <div className="pw-field-list">
-                      {data.form_fields.map((field) => (
-                        <label key={field.field_id} className="pw-field-item">
+                      {data.form_fields.map((field, i) => (
+                        <label key={`${field.field_id}-${i}`} className="pw-field-item">
                           <input
                             type="checkbox"
                             checked={selectedFields.has(field.field_id)}
